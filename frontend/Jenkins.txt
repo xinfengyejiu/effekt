@@ -17,7 +17,7 @@ pipeline {
         HARBOR_PROJECT = 'effekt'
         IMAGE_REPO = 'effekt-interface-frontend'
         IMAGE_NAME = "${REGISTRY}/${HARBOR_PROJECT}/${IMAGE_REPO}"
-        BUILD_IMAGE = '39.170.26.156:8443/cicd/ubuntu:22.04-docker-py312-jdk8-nodejs20-mvn389'
+        BUILD_IMAGE = 'xxxx:xxxx/cicd/ubuntu:22.04-docker-py312-jdk8-nodejs20-mvn389'
 
         DEPLOY_HOST = '124.220.32.45'
         DEPLOY_PORT = '22'
