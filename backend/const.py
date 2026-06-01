@@ -32,7 +32,7 @@ RES_CODE = {
 SPARKATP_DB_PASSWORD = os.environ.get('SPARKATP_DB_PASSWORD', '')
 sparkatp_sql_uri = os.environ.get(
     'SPARKATP_SQL_URI',
-    f'postgresql+psycopg2://postgres:{urlquote(SPARKATP_DB_PASSWORD)}@39.170.26.156:8366/test'
+    f'postgresql+psycopg2://postgres:{urlquote(SPARKATP_DB_PASSWORD)}@xxx:xxx/test'
 )
 EXECUTE_DB_CONFIG = {
     'ZHYY': {
@@ -76,7 +76,7 @@ USE_TEAM = ["ZHYY", "DLZ", "JOYHUB", "OA", "APP"]
 # prod环境请求user_info
 # STRESS_URI = 'http://stress-api.bg.huohua.cn'
 STRESS_URI = 'https://qe.bg.huohua.cn'
-# STRESS_URI = ' http://172.19.24.100:5012/api'
+# STRESS_URI = ' http://xxxx:xxxx/api'
 # dev环境 qe domain
 # QE_DOMAIN = 'http://qe.qa.huohua.cn'
 # prod环境 qe domain
@@ -85,7 +85,7 @@ QE_DOMAIN = 'https://qe.bg.huohua.cn'
 PASSWORD = quote(os.environ.get('APP_PASSWORD', ''))
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:7379/15')
 
-JENKINS_BASE_URL = os.environ.get('JENKINS_BASE_URL', 'http://39.170.26.156:8256/')
+JENKINS_BASE_URL = os.environ.get('JENKINS_BASE_URL', 'http://xxxx:xxxx/')
 JENKINS_USER = os.environ.get('JENKINS_USER', 'jenkins')
 JENKINS_TOKEN = os.environ.get('JENKINS_TOKEN', 'jenkins')
 JENKINS_DEFAULT_JOB = os.environ.get('JENKINS_DEFAULT_JOB', 'pytest-auto-runner')
