@@ -115,7 +115,8 @@ export default {
       const filteredMenus = this.filterMenus(this.userMenus)
       const menus = this.renameTestPlatformToCycle(filteredMenus)
       const withSkillMenu = this.injectBusinessSkillConfigMenu(menus)
-      const withMockMenu = this.injectMockServiceMenu(withSkillMenu)
+      const withAiMenu = this.injectAiPlatformMenu(withSkillMenu)
+      const withMockMenu = this.injectMockServiceMenu(withAiMenu)
       const sorted = this.sortMenusByProductOrder(withMockMenu)
       const hasHome = sorted.some(menu => menu.path === '/effekt' || menu.name === '首页')
       if (hasHome) {
@@ -177,6 +178,7 @@ export default {
         '/system/menu': '/system/menu',
         '/system/permission': '/system/permission',
         '/test-platform/skill-rules': '/test-platform/skill-rules',
+        '/test-platform/ai-platform': '/test-platform/ai-platform',
         '/bug': '/bug/list',
         '/bug/list': '/bug/list',
         '/bug/detail': '/bug/detail',
@@ -202,7 +204,8 @@ export default {
         '/mock': 'el-icon-connection',
         '/mock/document': 'el-icon-document-copy',
         '/mock/interface': 'el-icon-link',
-        '/mock/log': 'el-icon-tickets'
+        '/mock/log': 'el-icon-tickets',
+        '/test-platform/ai-platform': 'el-icon-cpu'
       }
       if (path && pathIconMap[path]) {
         return pathIconMap[path]
@@ -223,6 +226,7 @@ export default {
         '项目管理': 'el-icon-s-management',
         '用例管理': 'el-icon-document',
         '业务技能配置': 'el-icon-collection',
+        'AI测试中枢': 'el-icon-cpu',
         '测试计划': 'el-icon-date',
         '测试报告': 'el-icon-data-line',
         '测试工具': 'el-icon-s-tools',
@@ -326,6 +330,43 @@ export default {
         }
         if (item.children && item.children.length) {
           return Object.assign({}, item, { children: this.injectBusinessSkillConfigMenu(item.children) })
+        }
+        return item
+      })
+    },
+    injectAiPlatformMenu(menus) {
+      const INJECT_PATH = '/test-platform/ai-platform'
+      const INJECT_KEY = '__inject_ai_platform__'
+      const makeItem = () => ({
+        name: 'AI测试中枢',
+        path: INJECT_PATH,
+        icon: 'el-icon-cpu',
+        menuId: INJECT_KEY,
+        id: INJECT_KEY,
+        visible: 1,
+        status: 1,
+        children: []
+      })
+      const hasInjected = list =>
+        (list || []).some(c => c.path === INJECT_PATH || c.menuId === INJECT_KEY || c.id === INJECT_KEY)
+      const mergeCycleChildren = children => {
+        if (!children || !children.length) return children || []
+        if (hasInjected(children)) return children
+        const next = children.slice()
+        const idx = next.findIndex(c => String(c.path || '') === '/test-platform/skill-rules' || c.name === '业务技能配置')
+        if (idx >= 0) {
+          next.splice(idx + 1, 0, makeItem())
+        } else {
+          next.unshift(makeItem())
+        }
+        return next
+      }
+      return (menus || []).map(item => {
+        if (item.name === '用例周期' && item.children && item.children.length) {
+          return Object.assign({}, item, { children: mergeCycleChildren(item.children.slice()) })
+        }
+        if (item.children && item.children.length) {
+          return Object.assign({}, item, { children: this.injectAiPlatformMenu(item.children) })
         }
         return item
       })

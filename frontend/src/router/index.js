@@ -104,6 +104,13 @@ export default new Router({
           }
         },
         {
+          path: '/test-platform/ai-platform',
+          name: 'AiPlatform',
+          components: {
+            Manage: (resolve) => require(['@/components/TestPlatform/AI/AiPlatform'], resolve)
+          }
+        },
+        {
           path: '/test-platform/case',
           name: 'CaseList',
           components: {

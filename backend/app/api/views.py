@@ -21,6 +21,12 @@ from .controller.automationController import AutomationController
 from .controller.skillController import SkillController
 from .controller.documentSourceController import DocumentSourceController
 from .controller.mockController import MockController
+from .controller.aiAgentController import AiAgentController
+from .controller.aiToolController import AiToolController
+from .controller.aiMcpController import AiMcpController
+from .controller.aiFlowController import AiFlowController
+from .controller.aiTaskController import AiTaskController
+from .controller.aiReportController import AiReportController
 
 api = Blueprint('api', __name__)
 
@@ -110,6 +116,7 @@ def project_list():
         return ApiResponse.build_success(20000, data=controller.project_list())
     finally:
         controller.close_session()
+
 
 
 @api.route('/project/detail', methods=['GET'])
@@ -2142,4 +2149,369 @@ def mock_runtime(path):
         return ApiResponse.build_failure(40008, msg=str(e))
     finally:
         controller.close_session()
+
+
+# =========================
+# AI 测试中枢接口
+# =========================
+
+
+def _ai_response(controller, action, id_key='id'):
+    try:
+        result = action()
+        if isinstance(result, tuple) and len(result) == 2:
+            ret, err_msg = result
+        else:
+            ret, err_msg = result, ''
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        if isinstance(ret, int):
+            return ApiResponse.build_success(20000, data={id_key: ret})
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/ai/agent/create', methods=['POST'])
+@login_required
+@permission_required('ai_agent:create')
+def ai_agent_create():
+    controller = AiAgentController(request.get_json() or {})
+    return _ai_response(controller, controller.agent_create)
+
+
+@api.route('/ai/agent/update', methods=['POST'])
+@login_required
+@permission_required('ai_agent:update')
+def ai_agent_update():
+    controller = AiAgentController(request.get_json() or {})
+    return _ai_response(controller, controller.agent_update)
+
+
+@api.route('/ai/agent/delete', methods=['POST'])
+@login_required
+@permission_required('ai_agent:delete')
+def ai_agent_delete():
+    controller = AiAgentController(request.get_json() or {})
+    return _ai_response(controller, controller.agent_delete)
+
+
+@api.route('/ai/agent/list', methods=['GET'])
+@login_required
+@permission_required('ai_agent:list')
+def ai_agent_list():
+    controller = AiAgentController(request.args)
+    return _ai_response(controller, controller.agent_list)
+
+
+@api.route('/ai/agent/detail', methods=['GET'])
+@login_required
+@permission_required('ai_agent:detail')
+def ai_agent_detail():
+    controller = AiAgentController(request.args)
+    return _ai_response(controller, controller.agent_detail)
+
+
+@api.route('/ai/agent/test', methods=['POST'])
+@login_required
+@permission_required('ai_agent:execute')
+def ai_agent_test():
+    controller = AiAgentController(request.get_json() or {})
+    return _ai_response(controller, controller.agent_test)
+
+
+@api.route('/ai/agent/execute', methods=['POST'])
+@login_required
+@permission_required('ai_agent:execute')
+def ai_agent_execute():
+    controller = AiAgentController(request.get_json() or {})
+    return _ai_response(controller, controller.agent_execute)
+
+
+@api.route('/ai/agent/execution/list', methods=['GET'])
+@login_required
+@permission_required('ai_agent:detail')
+def ai_agent_execution_list():
+    controller = AiAgentController(request.args)
+    return _ai_response(controller, controller.execution_list)
+
+
+@api.route('/ai/agent/execution/detail', methods=['GET'])
+@login_required
+@permission_required('ai_agent:detail')
+def ai_agent_execution_detail():
+    controller = AiAgentController(request.args)
+    return _ai_response(controller, controller.execution_detail)
+
+
+@api.route('/ai/tool/create', methods=['POST'])
+@login_required
+@permission_required('ai_tool:create')
+def ai_tool_create():
+    controller = AiToolController(request.get_json() or {})
+    return _ai_response(controller, controller.tool_create)
+
+
+@api.route('/ai/tool/update', methods=['POST'])
+@login_required
+@permission_required('ai_tool:update')
+def ai_tool_update():
+    controller = AiToolController(request.get_json() or {})
+    return _ai_response(controller, controller.tool_update)
+
+
+@api.route('/ai/tool/delete', methods=['POST'])
+@login_required
+@permission_required('ai_tool:delete')
+def ai_tool_delete():
+    controller = AiToolController(request.get_json() or {})
+    return _ai_response(controller, controller.tool_delete)
+
+
+@api.route('/ai/tool/list', methods=['GET'])
+@login_required
+@permission_required('ai_tool:list')
+def ai_tool_list():
+    controller = AiToolController(request.args)
+    return _ai_response(controller, controller.tool_list)
+
+
+@api.route('/ai/tool/detail', methods=['GET'])
+@login_required
+@permission_required('ai_tool:detail')
+def ai_tool_detail():
+    controller = AiToolController(request.args)
+    return _ai_response(controller, controller.tool_detail)
+
+
+@api.route('/ai/tool/test', methods=['POST'])
+@login_required
+@permission_required('ai_tool:execute')
+def ai_tool_test():
+    controller = AiToolController(request.get_json() or {})
+    return _ai_response(controller, controller.tool_test)
+
+
+@api.route('/ai/tool/execute', methods=['POST'])
+@login_required
+@permission_required('ai_tool:execute')
+def ai_tool_execute():
+    controller = AiToolController(request.get_json() or {})
+    return _ai_response(controller, controller.tool_execute)
+
+
+@api.route('/ai/tool/execution/list', methods=['GET'])
+@login_required
+@permission_required('ai_tool:detail')
+def ai_tool_execution_list():
+    controller = AiToolController(request.args)
+    return _ai_response(controller, controller.execution_list)
+
+
+@api.route('/ai/tool/execution/detail', methods=['GET'])
+@login_required
+@permission_required('ai_tool:detail')
+def ai_tool_execution_detail():
+    controller = AiToolController(request.args)
+    return _ai_response(controller, controller.execution_detail)
+
+
+@api.route('/ai/mcp/create', methods=['POST'])
+@login_required
+@permission_required('ai_mcp:create')
+def ai_mcp_create():
+    controller = AiMcpController(request.get_json() or {})
+    return _ai_response(controller, controller.mcp_create)
+
+
+@api.route('/ai/mcp/update', methods=['POST'])
+@login_required
+@permission_required('ai_mcp:update')
+def ai_mcp_update():
+    controller = AiMcpController(request.get_json() or {})
+    return _ai_response(controller, controller.mcp_update)
+
+
+@api.route('/ai/mcp/delete', methods=['POST'])
+@login_required
+@permission_required('ai_mcp:delete')
+def ai_mcp_delete():
+    controller = AiMcpController(request.get_json() or {})
+    return _ai_response(controller, controller.mcp_delete)
+
+
+@api.route('/ai/mcp/list', methods=['GET'])
+@login_required
+@permission_required('ai_mcp:list')
+def ai_mcp_list():
+    controller = AiMcpController(request.args)
+    return _ai_response(controller, controller.mcp_list)
+
+
+@api.route('/ai/mcp/detail', methods=['GET'])
+@login_required
+@permission_required('ai_mcp:detail')
+def ai_mcp_detail():
+    controller = AiMcpController(request.args)
+    return _ai_response(controller, controller.mcp_detail)
+
+
+@api.route('/ai/mcp/test', methods=['POST'])
+@login_required
+@permission_required('ai_mcp:call')
+def ai_mcp_test():
+    controller = AiMcpController(request.get_json() or {})
+    return _ai_response(controller, controller.mcp_test)
+
+
+@api.route('/ai/mcp/call', methods=['POST'])
+@login_required
+@permission_required('ai_mcp:call')
+def ai_mcp_call():
+    controller = AiMcpController(request.get_json() or {})
+    return _ai_response(controller, controller.mcp_call)
+
+
+@api.route('/ai/mcp/call/log/list', methods=['GET'])
+@login_required
+@permission_required('ai_mcp:detail')
+def ai_mcp_call_log_list():
+    controller = AiMcpController(request.args)
+    return _ai_response(controller, controller.call_log_list)
+
+
+@api.route('/ai/mcp/call/log/detail', methods=['GET'])
+@login_required
+@permission_required('ai_mcp:detail')
+def ai_mcp_call_log_detail():
+    controller = AiMcpController(request.args)
+    return _ai_response(controller, controller.call_log_detail)
+
+
+@api.route('/ai/flow/create', methods=['POST'])
+@login_required
+@permission_required('ai_flow:create')
+def ai_flow_create():
+    controller = AiFlowController(request.get_json() or {})
+    return _ai_response(controller, controller.flow_create)
+
+
+@api.route('/ai/flow/update', methods=['POST'])
+@login_required
+@permission_required('ai_flow:update')
+def ai_flow_update():
+    controller = AiFlowController(request.get_json() or {})
+    return _ai_response(controller, controller.flow_update)
+
+
+@api.route('/ai/flow/delete', methods=['POST'])
+@login_required
+@permission_required('ai_flow:delete')
+def ai_flow_delete():
+    controller = AiFlowController(request.get_json() or {})
+    return _ai_response(controller, controller.flow_delete)
+
+
+@api.route('/ai/flow/list', methods=['GET'])
+@login_required
+@permission_required('ai_flow:list')
+def ai_flow_list():
+    controller = AiFlowController(request.args)
+    return _ai_response(controller, controller.flow_list)
+
+
+@api.route('/ai/flow/detail', methods=['GET'])
+@login_required
+@permission_required('ai_flow:detail')
+def ai_flow_detail():
+    controller = AiFlowController(request.args)
+    return _ai_response(controller, controller.flow_detail)
+
+
+@api.route('/ai/flow/execute', methods=['POST'])
+@login_required
+@permission_required('ai_flow:execute')
+def ai_flow_execute():
+    controller = AiFlowController(request.get_json() or {})
+    return _ai_response(controller, controller.flow_execute)
+
+
+@api.route('/ai/flow/execution/list', methods=['GET'])
+@login_required
+@permission_required('ai_flow:detail')
+def ai_flow_execution_list():
+    controller = AiFlowController(request.args)
+    return _ai_response(controller, controller.execution_list)
+
+
+@api.route('/ai/flow/execution/detail', methods=['GET'])
+@login_required
+@permission_required('ai_flow:detail')
+def ai_flow_execution_detail():
+    controller = AiFlowController(request.args)
+    return _ai_response(controller, controller.execution_detail)
+
+
+@api.route('/ai/task/create', methods=['POST'])
+@login_required
+@permission_required('ai_task:create')
+def ai_task_create():
+    controller = AiTaskController(request.get_json() or {})
+    return _ai_response(controller, controller.task_create)
+
+
+@api.route('/ai/task/list', methods=['GET'])
+@login_required
+@permission_required('ai_task:list')
+def ai_task_list():
+    controller = AiTaskController(request.args)
+    return _ai_response(controller, controller.task_list)
+
+
+@api.route('/ai/task/detail', methods=['GET'])
+@login_required
+@permission_required('ai_task:detail')
+def ai_task_detail():
+    controller = AiTaskController(request.args)
+    return _ai_response(controller, controller.task_detail)
+
+
+@api.route('/ai/task/execute', methods=['POST'])
+@login_required
+@permission_required('ai_task:execute')
+def ai_task_execute():
+    controller = AiTaskController(request.get_json() or {})
+    return _ai_response(controller, controller.task_execute)
+
+
+@api.route('/ai/task/cancel', methods=['POST'])
+@login_required
+@permission_required('ai_task:cancel')
+def ai_task_cancel():
+    controller = AiTaskController(request.get_json() or {})
+    return _ai_response(controller, controller.task_cancel)
+
+
+@api.route('/ai/report/create', methods=['POST'])
+@login_required
+@permission_required('ai_report:create')
+def ai_report_create():
+    controller = AiReportController(request.get_json() or {})
+    return _ai_response(controller, controller.report_create)
+
+
+@api.route('/ai/report/list', methods=['GET'])
+@login_required
+@permission_required('ai_report:list')
+def ai_report_list():
+    controller = AiReportController(request.args)
+    return _ai_response(controller, controller.report_list)
+
+
+@api.route('/ai/report/detail', methods=['GET'])
+@login_required
+@permission_required('ai_report:detail')
+def ai_report_detail():
+    controller = AiReportController(request.args)
+    return _ai_response(controller, controller.report_detail)
 

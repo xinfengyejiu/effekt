@@ -18,6 +18,7 @@ class ProjectController(BaseCrudController):
         page_size = self._get(self.req_data, 'pageSize', 'size', default=20)
         keyword = self._get(self.req_data, 'keyword')
         status = self._get(self.req_data, 'status')
+        product_id = self._get(self.req_data, 'productId', 'product_id')
         filter_list = []
         # 关键字先按项目名称模糊匹配。
         if keyword:
@@ -25,6 +26,8 @@ class ProjectController(BaseCrudController):
         # 状态字段是枚举数字，查询时显式转 int。
         if status not in (None, ''):
             filter_list.append(Project.status == int(status))
+        if product_id not in (None, ''):
+            filter_list.append(Project.product_id == int(product_id))
         items, total = ProjectService.list_by_filters(self.session, Project, filter_list, page_num, page_size,
                                                       Project.created_time)
         product_ids = list({item.product_id for item in items if item.product_id})

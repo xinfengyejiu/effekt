@@ -55,7 +55,7 @@ class CaseController(BaseCrudController):
         name = self._get(self.req_data, 'name')
         if not project_id or not name:
             return 0, 'projectId、name 为必传参数'
-        add_info = {'project_id': project_id, 'parent_id': int(self._get(self.req_data, 'parentId', default=0)), 'name': name, 'sort_order': int(self._get(self.req_data, 'sortOrder', default=0)), 'path': self._get(self.req_data, 'path'), 'is_delete': 0}
+        add_info = {'project_id': project_id, 'parent_id': int(self._get(self.req_data, 'parentId', default=0)), 'name': name, 'sort_order': int(self._get(self.req_data, 'sortOrder', default=0)), 'path': self._get(self.req_data, 'path'), 'is_delete': 0, 'status': 1}
         return CaseService.create(self.session, Module, add_info)
 
     def module_update(self):
