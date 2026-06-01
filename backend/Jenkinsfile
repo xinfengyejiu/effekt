@@ -3,8 +3,8 @@ pipeline {
         docker {
             image "cicd/ubuntu:22.04-docker-py312-jdk8-nodejs20-mvn389"
             args '-v /var/run/docker.sock:/var/run/docker.sock -v /home/jenkins:/home/jenkins -v /etc/docker:/etc/docker'
-            registryUrl 'https://39.170.26.156:8443'
-            registryCredentialsId '3a4a4463-784d-4e91-9457-9dfd64722ecb'
+            registryUrl 'https://xxxx:xxxx'
+            registryCredentialsId 'your id'
         }
     }
 
@@ -17,7 +17,7 @@ pipeline {
         HARBOR_PROJECT = 'effekt'
         IMAGE_REPO = 'effekt-interface'
         IMAGE_NAME = "${REGISTRY}/${HARBOR_PROJECT}/${IMAGE_REPO}"
-        BUILD_IMAGE = '39.170.26.156:8443/cicd/ubuntu:22.04-docker-py312-jdk8-nodejs20-mvn389'
+        BUILD_IMAGE = 'xxxx:xxx/cicd/ubuntu:22.04-docker-py312-jdk8-nodejs20-mvn389'
 
         DEPLOY_HOST = '124.220.32.45'
         DEPLOY_PORT = '22'
@@ -67,7 +67,7 @@ pipeline {
                     sh '''
                         set -e
                         export DOCKER_BUILDKIT=0
-                        docker pull 39.170.26.156:8443/library/python:3.10-bookworm
+                        docker pull xxxx:xxx/library/python:3.10-bookworm
                         docker build --no-cache \
                           -t ${IMAGE_NAME}:${BUILD_NUMBER} \
                           -t ${IMAGE_NAME}:latest \
@@ -80,7 +80,7 @@ pipeline {
 
         stage('Push Image To Harbor') {
             steps {
-                withDockerRegistry(registry: [credentialsId: '3a4a4463-784d-4e91-9457-9dfd64722ecb', url: 'https://39.170.26.156:8443']) {
+                withDockerRegistry(registry: [credentialsId: 'xxxx', url: 'https://xxxx:xxxx']) {
                     sh '''
                         set -e
                         docker push ${IMAGE_NAME}:${BUILD_NUMBER}
@@ -96,7 +96,7 @@ pipeline {
                     deploy_node_by_password(
                         remote_host: env.DEPLOY_HOST,
                         remote_port: env.DEPLOY_PORT,
-                        credentials_id: '82d14a67-250f-46b0-8b13-50e874a11933'
+                        credentials_id: 'xxxx'
                     )
                 }
             }
@@ -107,7 +107,7 @@ pipeline {
                 script {
                     withCredentials([
                         usernamePassword(
-                            credentialsId: '82d14a67-250f-46b0-8b13-50e874a11933',
+                            credentialsId: 'xxxx',
                             passwordVariable: 'DEPLOY_PASS',
                             usernameVariable: 'DEPLOY_USER_CREDENTIAL'
                         )
@@ -157,7 +157,7 @@ def deploy_node_by_password(Map args) {
             usernameVariable: 'DEPLOY_USER_CREDENTIAL'
         ),
         usernamePassword(
-            credentialsId: '3a4a4463-784d-4e91-9457-9dfd64722ecb',
+            credentialsId: 'xxxx',
             passwordVariable: 'HARBOR_PASS',
             usernameVariable: 'HARBOR_USER'
         )
