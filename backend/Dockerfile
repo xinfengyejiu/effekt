@@ -1,4 +1,4 @@
-FROM 39.170.26.156:8443/library/python:3.10-bookworm
+FROM xxx:xxx/library/python:3.10-bookworm
 
 WORKDIR /app
 
