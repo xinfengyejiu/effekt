@@ -14,7 +14,7 @@ from ..service.documentSourceService import DocumentSourceService
 
 class DocumentSourceController(BaseCrudController):
     UPLOAD_FOLDER = 'uploads'
-    ALLOWED_EXTENSIONS = {'pdf'}
+    ALLOWED_EXTENSIONS = {'pdf', 'txt', 'md', 'docx'}
 
     def allowed_file(self, filename):
         return '.' in filename and \
@@ -194,7 +194,7 @@ class DocumentSourceController(BaseCrudController):
             return None, '文件名不能为空'
         
         if not self.allowed_file(file.filename):
-            return None, '不支持的文件格式，仅支持：pdf'
+            return None, '不支持的文件格式，仅支持：pdf、txt、md、docx'
         
         # 文件上传使用 form 表单获取参数
         product_id = self.req_data.form.get('productId')

@@ -27,6 +27,7 @@ from .controller.aiMcpController import AiMcpController
 from .controller.aiFlowController import AiFlowController
 from .controller.aiTaskController import AiTaskController
 from .controller.aiReportController import AiReportController
+from .controller.knowledgeController import KnowledgeController
 
 api = Blueprint('api', __name__)
 
@@ -1930,6 +1931,123 @@ def document_upload():
         return ApiResponse.build_success(20000, data=ret)
     finally:
         controller.close_session()
+
+
+# =========================
+# 需求问答 / 知识库接口
+# =========================
+
+
+def _knowledge_response(controller, action, id_key='id'):
+    try:
+        result = action()
+        if isinstance(result, tuple) and len(result) == 2:
+            ret, err_msg = result
+        else:
+            ret, err_msg = result, ''
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        if isinstance(ret, int):
+            return ApiResponse.build_success(20000, data={id_key: ret})
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/knowledge/document/list', methods=['GET'])
+@login_required
+@permission_required('knowledge:list')
+def knowledge_document_list():
+    controller = KnowledgeController(request.args)
+    return _knowledge_response(controller, controller.document_list)
+
+
+@api.route('/knowledge/document/upload', methods=['POST'])
+@login_required
+@permission_required('knowledge:upload')
+def knowledge_document_upload():
+    controller = KnowledgeController(request)
+    return _knowledge_response(controller, controller.document_upload)
+
+
+@api.route('/knowledge/document/parse', methods=['POST'])
+@login_required
+@permission_required('knowledge:parse')
+def knowledge_document_parse():
+    controller = KnowledgeController(request.get_json() or {})
+    return _knowledge_response(controller, controller.document_parse)
+
+
+@api.route('/knowledge/document/delete', methods=['POST'])
+@login_required
+@permission_required('knowledge:delete')
+def knowledge_document_delete():
+    controller = KnowledgeController(request.get_json() or {})
+    return _knowledge_response(controller, controller.document_delete)
+
+
+@api.route('/knowledge/search', methods=['POST'])
+@login_required
+@permission_required('knowledge:search')
+def knowledge_search():
+    controller = KnowledgeController(request.get_json() or {})
+    return _knowledge_response(controller, controller.search)
+
+
+@api.route('/knowledge/chat', methods=['POST'])
+@login_required
+@permission_required('knowledge:chat')
+def knowledge_chat():
+    controller = KnowledgeController(request.get_json() or {})
+    return _knowledge_response(controller, controller.chat)
+
+
+@api.route('/knowledge/chat/session/list', methods=['GET'])
+@login_required
+@permission_required('knowledge:chat')
+def knowledge_session_list():
+    controller = KnowledgeController(request.args)
+    return _knowledge_response(controller, controller.session_list)
+
+
+@api.route('/knowledge/chat/message/list', methods=['GET'])
+@login_required
+@permission_required('knowledge:chat')
+def knowledge_message_list():
+    controller = KnowledgeController(request.args)
+    return _knowledge_response(controller, controller.message_list)
+
+
+@api.route('/knowledge/chat/session/delete', methods=['POST'])
+@login_required
+@permission_required('knowledge:chat')
+def knowledge_session_delete():
+    controller = KnowledgeController(request.get_json() or {})
+    return _knowledge_response(controller, controller.session_delete)
+
+
+@api.route('/knowledge/model-setting/detail', methods=['GET'])
+@login_required
+@permission_required('knowledge:setting')
+def knowledge_model_setting_detail():
+    controller = KnowledgeController(request.args)
+    return _knowledge_response(controller, controller.model_setting_detail)
+
+
+@api.route('/knowledge/model-setting/save', methods=['POST'])
+@login_required
+@permission_required('knowledge:setting')
+def knowledge_model_setting_save():
+    controller = KnowledgeController(request.get_json() or {})
+    return _knowledge_response(controller, controller.model_setting_save)
+
+
+@api.route('/knowledge/model-setting/test', methods=['POST'])
+@login_required
+@permission_required('knowledge:setting')
+def knowledge_model_setting_test():
+    controller = KnowledgeController(request.get_json() or {})
+    return _knowledge_response(controller, controller.model_setting_test)
 
 
 # =========================

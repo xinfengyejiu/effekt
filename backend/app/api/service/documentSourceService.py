@@ -241,6 +241,40 @@ class DocumentSourceService:
             from flask import current_app
             current_app.logger.exception(f'PDF内容提取失败: path={pdf_path}, error={str(e)}')
             return ''
+
+    @staticmethod
+    def extract_document_content(document):
+        if not document:
+            return ''
+        if document.content:
+            return document.content
+        source = document.source or ''
+        if document.type == DocumentSourceService.DOCUMENT_TYPE_FEISHU:
+            return DocumentSourceService._fetch_feishu_content(source) or ''
+        file_path = source if os.path.isabs(source) else os.path.join(os.getcwd(), source)
+        if not os.path.exists(file_path):
+            return ''
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.pdf':
+            return DocumentSourceService._extract_content_from_pdf(file_path)
+        if ext in ('.txt', '.md'):
+            for encoding in ('utf-8', 'gbk', 'gb18030'):
+                try:
+                    with open(file_path, 'r', encoding=encoding) as file_obj:
+                        return file_obj.read()
+                except UnicodeDecodeError:
+                    continue
+                except Exception:
+                    return ''
+            return ''
+        if ext == '.docx':
+            try:
+                from docx import Document
+                doc = Document(file_path)
+                return '\n'.join([p.text for p in doc.paragraphs if p.text])
+            except Exception:
+                return ''
+        return ''
     
     @staticmethod
     def generate_cases_batch(session, document_ids, template=None):

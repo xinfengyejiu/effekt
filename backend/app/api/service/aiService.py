@@ -7,7 +7,7 @@ import re
 import time
 import traceback
 from pathlib import Path
-from flask import current_app
+from flask import current_app, has_app_context
 
 
 class AIService:
@@ -49,6 +49,136 @@ class AIService:
             current_app.logger.error(f'AI生成测试用例失败: {str(e)}')
             current_app.logger.error(traceback.format_exc())
             return [], f'AI生成失败: {str(e)}'
+
+    @staticmethod
+    def get_embedding(text, model_setting=None):
+        try:
+            from openai import OpenAI
+            from config.ai_config import AIConfig
+            import httpx
+
+            text = (text or '').strip()
+            if not text:
+                return [], ''
+            model_setting = model_setting or {}
+            api_key = AIConfig.get_api_key()
+            if not api_key or api_key == '请替换为你的Meteor API Key':
+                return AIService._hash_embedding(text), 'local-hash-128'
+            provider = model_setting.get('provider') or AIConfig.MODEL_PROVIDER
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            embedding_model = model_setting.get('embeddingModel') or model_setting.get('embedding_model') or 'text-embedding-3-small'
+            is_plan_key = provider == 'custom' and api_key.startswith('plan-')
+            request_base = AIService._normalize_plan_api_base(api_base) if is_plan_key else AIService._normalize_api_base(api_base)
+            timeout = httpx.Timeout(connect=AIConfig.CONNECT_TIMEOUT, read=AIConfig.READ_TIMEOUT, write=AIConfig.READ_TIMEOUT, pool=AIConfig.CONNECT_TIMEOUT)
+            client = OpenAI(api_key=api_key, base_url=request_base, http_client=httpx.Client(timeout=timeout, trust_env=False))
+            response = client.embeddings.create(model=embedding_model, input=text[:6000])
+            embedding = response.data[0].embedding if response.data else []
+            if embedding:
+                return embedding, embedding_model
+            return AIService._hash_embedding(text), 'local-hash-128'
+        except Exception as e:
+            if has_app_context():
+                current_app.logger.warning(f'Embedding模型调用失败，使用本地向量兜底: {str(e)}')
+            return AIService._hash_embedding(text), 'local-hash-128'
+
+    @staticmethod
+    def _hash_embedding(text, dimensions=128):
+        import hashlib
+        import math
+        vector = [0.0] * dimensions
+        tokens = re.findall(r'[0-9A-Za-z_]+', text or '')
+        for cn_text in re.findall(r'[\u4e00-\u9fa5]{2,}', text or ''):
+            tokens.append(cn_text)
+            for size in (2, 3, 4):
+                for index in range(0, max(0, len(cn_text) - size + 1)):
+                    tokens.append(cn_text[index:index + size])
+        if not tokens:
+            tokens = [text or 'empty']
+        for token in tokens:
+            digest = hashlib.md5(token.encode('utf-8')).digest()
+            index = int.from_bytes(digest[:4], 'big') % dimensions
+            sign = 1.0 if digest[4] % 2 == 0 else -1.0
+            weight = 1.0 + min(len(token), 8) / 8.0
+            vector[index] += sign * weight
+        norm = math.sqrt(sum(item * item for item in vector)) or 1.0
+        return [round(item / norm, 6) for item in vector]
+
+    @staticmethod
+    def chat_with_context(query, evidences=None, model_setting=None):
+        try:
+            from openai import OpenAI
+            from config.ai_config import AIConfig
+            import httpx
+
+            evidences = evidences or []
+            model_setting = model_setting or {}
+            api_key = AIConfig.get_api_key()
+            if not api_key or api_key == '请替换为你的Meteor API Key':
+                return '', '未配置API密钥，请在.env中配置METEOR_API_KEY'
+            provider = model_setting.get('provider') or AIConfig.MODEL_PROVIDER
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            model = model_setting.get('model') or AIConfig.get_model()
+            temperature = float(model_setting.get('temperature') if model_setting.get('temperature') is not None else AIConfig.OPENAI_TEMPERATURE)
+            max_tokens = int(model_setting.get('maxTokens') or model_setting.get('max_tokens') or AIConfig.OPENAI_MAX_TOKENS)
+            is_plan_key = provider == 'custom' and api_key.startswith('plan-')
+            request_base = AIService._normalize_plan_api_base(api_base) if is_plan_key else AIService._normalize_api_base(api_base)
+            timeout = httpx.Timeout(connect=AIConfig.CONNECT_TIMEOUT, read=AIConfig.READ_TIMEOUT, write=AIConfig.READ_TIMEOUT, pool=AIConfig.CONNECT_TIMEOUT)
+            prompt = AIService._build_rag_prompt(query, evidences)
+            if is_plan_key:
+                return AIService._create_plan_message(api_key, request_base, model, prompt, timeout), ''
+            client = OpenAI(api_key=api_key, base_url=request_base, http_client=httpx.Client(timeout=timeout, trust_env=False))
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "你是测试平台的需求问答助手。只要 evidence-list 非空，必须优先依据证据内容回答，并按引用编号标注；不能在已有证据时笼统回答‘未找到充分依据’。证据确实没有覆盖问题时，再说明不足项。"},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            return response.choices[0].message.content, ''
+        except Exception as e:
+            current_app.logger.error(f'知识库问答失败: {str(e)}')
+            current_app.logger.error(traceback.format_exc())
+            return '', f'模型调用失败: {str(e)}'
+
+    @staticmethod
+    def _build_rag_prompt(query, evidences):
+        if evidences:
+            parts = []
+            for index, item in enumerate(evidences, 1):
+                parts.append(f'[{index}] 文档ID：{item.get("documentId")}；分片：{item.get("chunkNo")}；相关度：{item.get("score")}\n标题：{item.get("title") or ""}\n内容：{item.get("snippet") or ""}')
+            evidence_text = '\n\n'.join(parts)
+        else:
+            evidence_text = '无本地知识库证据。'
+        return f'''
+你是测试平台的需求问答助手。你只能基于给定需求文档证据回答。若 evidence-list 中存在证据，请先从证据中归纳直接答案，并标注引用；不要因为证据不完整就直接否定命中。只有 evidence-list 为“无本地知识库证据”或证据完全无关时，才说明“当前知识库未找到充分依据”，并列出需要补充的信息。
+
+<evidence-list>
+{evidence_text}
+</evidence-list>
+
+用户问题：{query}
+
+请严格按以下 Markdown 结构输出，便于前端用“业务名称”作为脑图中心节点，并只截取“直接答案”生成脑图：
+
+## 直接答案
+业务名称：用不超过16个字概括当前回答对应的业务/模块/功能名称
+- 一级要点名称：一句话说明
+  - 二级要点：简短说明
+  - 二级要点：简短说明
+- 一级要点名称：一句话说明
+  - 二级要点：简短说明
+
+## 依据引用
+- 按 [1]/[2] 标注对应依据。
+
+## 测试关注点/风险点
+- 如适用，列出测试关注点或风险点。
+
+## 信息不足项
+- 如有，列出仍需补充的信息；没有则写“无”。
+'''.strip()
 
     @staticmethod
     def request_json(prompt, error_prefix='AI生成JSON'):
