@@ -262,6 +262,13 @@ export default new Router({
           }
         },
         {
+          path: '/requirement-qa',
+          name: 'RequirementQaList',
+          components: {
+            Manage: (resolve) => require(['@/components/RequirementQA/RequirementQaList'], resolve)
+          }
+        },
+        {
           path: '/mock/document',
           name: 'MockDocumentList',
           components: {

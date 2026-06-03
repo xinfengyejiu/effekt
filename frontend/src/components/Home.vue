@@ -117,7 +117,8 @@ export default {
       const withSkillMenu = this.injectBusinessSkillConfigMenu(menus)
       const withAiMenu = this.injectAiPlatformMenu(withSkillMenu)
       const withMockMenu = this.injectMockServiceMenu(withAiMenu)
-      const sorted = this.sortMenusByProductOrder(withMockMenu)
+      const withRequirementQaMenu = this.injectRequirementQaMenu(withMockMenu)
+      const sorted = this.sortMenusByProductOrder(withRequirementQaMenu)
       const hasHome = sorted.some(menu => menu.path === '/effekt' || menu.name === '首页')
       if (hasHome) {
         return sorted
@@ -185,6 +186,7 @@ export default {
         '/bug/create': '/bug/create',
         '/bug/edit': '/bug/edit',
         '/bug/stats': '/bug/stats',
+        '/requirement-qa': '/requirement-qa',
         '/mock': '/mock/interface',
         '/mock/document': '/mock/document',
         '/mock/interface': '/mock/interface',
@@ -205,6 +207,7 @@ export default {
         '/mock/document': 'el-icon-document-copy',
         '/mock/interface': 'el-icon-link',
         '/mock/log': 'el-icon-tickets',
+        '/requirement-qa': 'el-icon-chat-dot-round',
         '/test-platform/ai-platform': 'el-icon-cpu'
       }
       if (path && pathIconMap[path]) {
@@ -237,6 +240,7 @@ export default {
         'Mock文档': 'el-icon-document-copy',
         'Mock接口': 'el-icon-link',
         'Mock调用日志': 'el-icon-tickets',
+        '需求问答': 'el-icon-chat-dot-round',
         '系统管理': 'el-icon-setting',
         '角色管理': 'el-icon-user-solid',
         '用户管理': 'el-icon-user',
@@ -415,7 +419,21 @@ export default {
       }
       return result
     },
-    /** 左侧栏顶级顺序：首页 → 用例周期 → Bug管理 → 造数工具 → mock服务 → 系统管理 → 其它 */
+    injectRequirementQaMenu(menus) {
+      const exists = (menus || []).some(item => String(item.path || '') === '/requirement-qa' || item.name === '需求问答')
+      if (exists) return menus
+      return [...(menus || []), {
+        name: '需求问答',
+        path: '/requirement-qa',
+        icon: 'el-icon-chat-dot-round',
+        menuId: '__inject_requirement_qa__',
+        id: '__inject_requirement_qa__',
+        visible: 1,
+        status: 1,
+        children: []
+      }]
+    },
+    /** 左侧栏顶级顺序：首页 → 用例周期 → Bug管理 → 造数工具 → 需求问答 → mock服务 → 系统管理 → 其它 */
     representativeMenuPath(menu) {
       const direct = String((menu && menu.path) || '').trim()
       if (direct) return direct
@@ -444,6 +462,7 @@ export default {
       ) {
         return 30
       }
+      if (p.indexOf('/requirement-qa') === 0 || n === '需求问答') return 34
       if (p.indexOf('/mock') === 0 || n === 'mock服务' || n === 'Mock服务') return 35
       if (p.indexOf('/system') === 0 || n === '系统管理') return 40
       return 50
