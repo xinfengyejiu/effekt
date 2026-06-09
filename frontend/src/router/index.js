@@ -195,6 +195,98 @@ export default new Router({
           }
         },
         {
+          path: '/performance',
+          redirect: '/performance/scenarios'
+        },
+        {
+          path: '/performance/scenarios',
+          name: 'PerformanceScenarioList',
+          components: {
+            Manage: (resolve) => require(['@/components/Performance/ScenarioList'], resolve)
+          }
+        },
+        {
+          path: '/performance/run-wizard',
+          name: 'PerformanceRunWizard',
+          components: {
+            Manage: (resolve) => require(['@/components/Performance/RunWizard'], resolve)
+          }
+        },
+        {
+          path: '/performance/runs',
+          name: 'PerformanceRunList',
+          components: {
+            Manage: (resolve) => require(['@/components/Performance/RunList'], resolve)
+          }
+        },
+        {
+          path: '/performance/reports',
+          name: 'PerformanceReportList',
+          components: {
+            Manage: (resolve) => require(['@/components/Performance/ReportList'], resolve)
+          }
+        },
+        {
+          path: '/performance/machines',
+          name: 'PerformanceMachinePool',
+          components: {
+            Manage: (resolve) => require(['@/components/Performance/MachinePool'], resolve)
+          }
+        },
+        {
+          path: '/precise',
+          redirect: '/precise/analysis'
+        },
+        {
+          path: '/precise/analysis',
+          name: 'PreciseAnalysisList',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/AnalysisList'], resolve)
+          }
+        },
+        {
+          path: '/precise/analysis/detail',
+          name: 'PreciseAnalysisDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/AnalysisDetail'], resolve)
+          }
+        },
+        {
+          path: '/precise/relations',
+          name: 'PreciseRelationMap',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/RelationMap'], resolve)
+          }
+        },
+        {
+          path: '/precise/recommendation',
+          name: 'PreciseRecommendation',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/Recommendation'], resolve)
+          }
+        },
+        {
+          path: '/precise/coverage',
+          name: 'PreciseCoverageReport',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/CoverageReport'], resolve)
+          }
+        },
+        {
+          path: '/precise/coverage/detail',
+          name: 'PreciseCoverageDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/CoverageDetail'], resolve)
+          }
+        },
+        {
+          path: '/precise/gate',
+          name: 'PreciseQualityGate',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/QualityGate'], resolve)
+          }
+        },
+        {
           path: '/bug',
           redirect: '/bug/list'
         },

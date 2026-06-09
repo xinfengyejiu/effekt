@@ -80,3 +80,28 @@ class JenkinsRequest(object):
         except Exception as err:
             logger.error(f'Jenkins请求异常：{err}, params={json.dumps(params, ensure_ascii=False)}')
             return False, str(err), {}
+
+    def get_queue_item(self, queue_id):
+        if not self.base_url or not queue_id:
+            return False, 'Jenkins队列ID为空', {}
+        try:
+            response = self.session.get(f'{self.base_url}/queue/item/{queue_id}/api/json', timeout=30)
+            if response.status_code != 200:
+                return False, f'查询Jenkins队列失败：{response.status_code}', {}
+            return True, '', response.json()
+        except Exception as err:
+            logger.error(f'查询Jenkins队列异常：{err}')
+            return False, str(err), {}
+
+    def get_build_info(self, job_name, build_number):
+        if not self.base_url or not job_name or not build_number:
+            return False, 'Jenkins任务或构建号为空', {}
+        try:
+            url = f'{self.base_url}/job/{job_name}/{build_number}/api/json'
+            response = self.session.get(url, timeout=30)
+            if response.status_code != 200:
+                return False, f'查询Jenkins构建失败：{response.status_code}', {}
+            return True, '', response.json()
+        except Exception as err:
+            logger.error(f'查询Jenkins构建异常：{err}')
+            return False, str(err), {}

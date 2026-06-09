@@ -118,7 +118,8 @@ export default {
       const withAiMenu = this.injectAiPlatformMenu(withSkillMenu)
       const withMockMenu = this.injectMockServiceMenu(withAiMenu)
       const withRequirementQaMenu = this.injectRequirementQaMenu(withMockMenu)
-      const sorted = this.sortMenusByProductOrder(withRequirementQaMenu)
+      const withPerformanceMenu = this.injectPerformanceMenu(withRequirementQaMenu)
+      const sorted = this.sortMenusByProductOrder(withPerformanceMenu)
       const hasHome = sorted.some(menu => menu.path === '/effekt' || menu.name === '首页')
       if (hasHome) {
         return sorted
@@ -187,6 +188,12 @@ export default {
         '/bug/edit': '/bug/edit',
         '/bug/stats': '/bug/stats',
         '/requirement-qa': '/requirement-qa',
+        '/performance': '/performance/scenarios',
+        '/performance/scenarios': '/performance/scenarios',
+        '/performance/run-wizard': '/performance/run-wizard',
+        '/performance/runs': '/performance/runs',
+        '/performance/reports': '/performance/reports',
+        '/performance/machines': '/performance/machines',
         '/mock': '/mock/interface',
         '/mock/document': '/mock/document',
         '/mock/interface': '/mock/interface',
@@ -208,6 +215,12 @@ export default {
         '/mock/interface': 'el-icon-link',
         '/mock/log': 'el-icon-tickets',
         '/requirement-qa': 'el-icon-chat-dot-round',
+        '/performance': 'el-icon-data-analysis',
+        '/performance/scenarios': 'el-icon-document',
+        '/performance/run-wizard': 'el-icon-video-play',
+        '/performance/runs': 'el-icon-tickets',
+        '/performance/reports': 'el-icon-data-line',
+        '/performance/machines': 'el-icon-cpu',
         '/test-platform/ai-platform': 'el-icon-cpu'
       }
       if (path && pathIconMap[path]) {
@@ -241,6 +254,12 @@ export default {
         'Mock接口': 'el-icon-link',
         'Mock调用日志': 'el-icon-tickets',
         '需求问答': 'el-icon-chat-dot-round',
+        '性能测试': 'el-icon-data-analysis',
+        '性能场景': 'el-icon-document',
+        '发起压测': 'el-icon-video-play',
+        '执行记录': 'el-icon-tickets',
+        '性能报告': 'el-icon-data-line',
+        '测试机资源池': 'el-icon-cpu',
         '系统管理': 'el-icon-setting',
         '角色管理': 'el-icon-user-solid',
         '用户管理': 'el-icon-user',
@@ -433,7 +452,36 @@ export default {
         children: []
       }]
     },
-    /** 左侧栏顶级顺序：首页 → 用例周期 → Bug管理 → 造数工具 → 需求问答 → mock服务 → 系统管理 → 其它 */
+    injectPerformanceMenu(menus) {
+      const makeChildren = () => [
+        { name: '性能场景', path: '/performance/scenarios', icon: 'el-icon-document', menuId: '__inject_performance_scenarios__', id: '__inject_performance_scenarios__', visible: 1, status: 1, children: [] },
+        { name: '发起压测', path: '/performance/run-wizard', icon: 'el-icon-video-play', menuId: '__inject_performance_run_wizard__', id: '__inject_performance_run_wizard__', visible: 1, status: 1, children: [] },
+        { name: '执行记录', path: '/performance/runs', icon: 'el-icon-tickets', menuId: '__inject_performance_runs__', id: '__inject_performance_runs__', visible: 1, status: 1, children: [] },
+        { name: '性能报告', path: '/performance/reports', icon: 'el-icon-data-line', menuId: '__inject_performance_reports__', id: '__inject_performance_reports__', visible: 1, status: 1, children: [] },
+        { name: '测试机资源池', path: '/performance/machines', icon: 'el-icon-cpu', menuId: '__inject_performance_machines__', id: '__inject_performance_machines__', visible: 1, status: 1, children: [] }
+      ]
+      const isPerformanceGroup = item => item && (String(item.path || '') === '/performance' || item.name === '性能测试' || item.menuId === '__inject_performance__' || item.id === '__inject_performance__')
+      const mergeChildren = children => {
+        const next = (children || []).slice()
+        makeChildren().forEach(child => {
+          if (!next.some(item => String(item.path || '') === child.path || item.name === child.name || item.menuId === child.menuId || item.id === child.id)) {
+            next.push(child)
+          }
+        })
+        return next
+      }
+      let hasGroup = false
+      const result = (menus || []).map(item => {
+        if (!isPerformanceGroup(item)) return item
+        hasGroup = true
+        return Object.assign({}, item, { name: '性能测试', path: '/performance', icon: item.icon || 'el-icon-data-analysis', children: mergeChildren(item.children) })
+      })
+      if (!hasGroup) {
+        result.push({ name: '性能测试', path: '/performance', icon: 'el-icon-data-analysis', menuId: '__inject_performance__', id: '__inject_performance__', visible: 1, status: 1, children: makeChildren() })
+      }
+      return result
+    },
+    /** 左侧栏顶级顺序：首页 → 用例周期 → Bug管理 → 造数工具 → 需求问答 → 性能测试 → mock服务 → 系统管理 → 其它 */
     representativeMenuPath(menu) {
       const direct = String((menu && menu.path) || '').trim()
       if (direct) return direct
@@ -463,7 +511,8 @@ export default {
         return 30
       }
       if (p.indexOf('/requirement-qa') === 0 || n === '需求问答') return 34
-      if (p.indexOf('/mock') === 0 || n === 'mock服务' || n === 'Mock服务') return 35
+      if (p.indexOf('/performance') === 0 || n === '性能测试') return 35
+      if (p.indexOf('/mock') === 0 || n === 'mock服务' || n === 'Mock服务') return 36
       if (p.indexOf('/system') === 0 || n === '系统管理') return 40
       return 50
     },

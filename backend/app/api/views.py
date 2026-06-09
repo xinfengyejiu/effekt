@@ -28,6 +28,8 @@ from .controller.aiFlowController import AiFlowController
 from .controller.aiTaskController import AiTaskController
 from .controller.aiReportController import AiReportController
 from .controller.knowledgeController import KnowledgeController
+from .controller.performanceController import PerformanceController
+from .controller.preciseTestController import PreciseTestController
 
 api = Blueprint('api', __name__)
 
@@ -1934,6 +1936,369 @@ def document_upload():
 
 
 # =========================
+# 性能测试接口
+# =========================
+
+
+def _performance_response(controller, action, id_key='id'):
+    try:
+        result = action()
+        if isinstance(result, tuple) and len(result) == 2:
+            ret, err_msg = result
+        else:
+            ret, err_msg = result, ''
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        if isinstance(ret, int):
+            return ApiResponse.build_success(20000, data={id_key: ret})
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/performance/scenarios', methods=['GET'])
+@login_required
+@permission_required('performance:scenario:list')
+def performance_scenario_list():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, controller.scenario_list)
+
+
+@api.route('/performance/scenarios', methods=['POST'])
+@login_required
+@permission_required('performance:scenario:create')
+def performance_scenario_create():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.scenario_create)
+
+
+@api.route('/performance/scenarios/<int:scenario_id>', methods=['GET'])
+@login_required
+@permission_required('performance:scenario:list')
+def performance_scenario_detail(scenario_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.scenario_detail(scenario_id))
+
+
+@api.route('/performance/scenarios/<int:scenario_id>', methods=['PUT'])
+@login_required
+@permission_required('performance:scenario:update')
+def performance_scenario_update(scenario_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.scenario_update(scenario_id))
+
+
+@api.route('/performance/scenarios/<int:scenario_id>', methods=['DELETE'])
+@login_required
+@permission_required('performance:scenario:delete')
+def performance_scenario_delete(scenario_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.scenario_delete(scenario_id))
+
+
+@api.route('/performance/test-machines', methods=['GET'])
+@login_required
+@permission_required('performance:machine:list')
+def performance_machine_list():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, controller.machine_list)
+
+
+@api.route('/performance/test-machines/available', methods=['GET'])
+@login_required
+@permission_required('performance:machine:list')
+def performance_machine_available():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.machine_list(True))
+
+
+@api.route('/performance/test-machines', methods=['POST'])
+@login_required
+@permission_required('performance:machine:save')
+def performance_machine_create():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.machine_create)
+
+
+@api.route('/performance/test-machines/<int:machine_id>', methods=['GET'])
+@login_required
+@permission_required('performance:machine:list')
+def performance_machine_detail(machine_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.machine_detail(machine_id))
+
+
+@api.route('/performance/test-machines/<int:machine_id>', methods=['PUT'])
+@login_required
+@permission_required('performance:machine:save')
+def performance_machine_update(machine_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.machine_update(machine_id))
+
+
+@api.route('/performance/test-machines/<int:machine_id>', methods=['DELETE'])
+@login_required
+@permission_required('performance:machine:delete')
+def performance_machine_delete(machine_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.machine_delete(machine_id))
+
+
+@api.route('/performance/scripts', methods=['GET'])
+@login_required
+@permission_required('performance:script:list')
+def performance_script_list():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, controller.script_list)
+
+
+@api.route('/performance/scripts/upload', methods=['POST'])
+@login_required
+@permission_required('performance:script:upload')
+def performance_script_upload():
+    controller = PerformanceController(request)
+    return _performance_response(controller, controller.script_upload)
+
+
+@api.route('/performance/scripts/generate-plan', methods=['POST'])
+@login_required
+@permission_required('performance:script:generate')
+def performance_script_generate_plan():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.script_generate_plan)
+
+
+@api.route('/performance/scripts/generate-script', methods=['POST'])
+@login_required
+@permission_required('performance:script:generate')
+def performance_script_generate_script():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.script_generate_script)
+
+
+@api.route('/performance/scripts/<int:script_id>', methods=['GET'])
+@login_required
+@permission_required('performance:script:list')
+def performance_script_detail(script_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.script_detail(script_id))
+
+
+@api.route('/performance/scripts/<int:script_id>/versions', methods=['GET'])
+@login_required
+@permission_required('performance:script:list')
+def performance_script_version_list(script_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.script_version_list(script_id))
+
+
+@api.route('/performance/scripts/versions/<int:version_id>/download', methods=['GET'])
+@login_required
+@permission_required('performance:script:download')
+def performance_script_version_download(version_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.script_version_download(version_id))
+
+
+@api.route('/performance/execution-configs', methods=['GET'])
+@login_required
+@permission_required('performance:config:list')
+def performance_execution_config_list():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, controller.execution_config_list)
+
+
+@api.route('/performance/execution-configs', methods=['POST'])
+@login_required
+@permission_required('performance:config:save')
+def performance_execution_config_create():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.execution_config_create)
+
+
+@api.route('/performance/execution-configs/<int:config_id>', methods=['PUT'])
+@login_required
+@permission_required('performance:config:save')
+def performance_execution_config_update(config_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.execution_config_update(config_id))
+
+
+@api.route('/performance/execution-configs/<int:config_id>', methods=['GET'])
+@login_required
+@permission_required('performance:config:list')
+def performance_execution_config_detail(config_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.execution_config_detail(config_id))
+
+
+@api.route('/performance/runs', methods=['POST'])
+@login_required
+@permission_required('performance:run:execute')
+def performance_run_create():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.run_create)
+
+
+@api.route('/performance/runs', methods=['GET'])
+@login_required
+@permission_required('performance:run:list')
+def performance_run_list():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, controller.run_list)
+
+
+@api.route('/performance/runs/sync-jenkins', methods=['POST'])
+@login_required
+@permission_required('performance:run:list')
+def performance_run_sync_jenkins():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.sync_jenkins_runs)
+
+
+@api.route('/performance/runs/<int:run_id>', methods=['GET'])
+@login_required
+@permission_required('performance:run:detail')
+def performance_run_detail(run_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.run_detail(run_id))
+
+
+@api.route('/performance/runs/<int:run_id>/stop', methods=['POST'])
+@login_required
+@permission_required('performance:run:stop')
+def performance_run_stop(run_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.run_stop(run_id))
+
+
+@api.route('/performance/runs/<int:run_id>/retry', methods=['POST'])
+@login_required
+@permission_required('performance:run:retry')
+def performance_run_retry(run_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.run_retry(run_id))
+
+
+@api.route('/performance/jenkins/callback', methods=['POST'])
+def performance_jenkins_callback():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.jenkins_callback)
+
+
+@api.route('/performance/reports/<int:run_id>', methods=['GET'])
+@login_required
+@permission_required('performance:report:detail')
+def performance_report_detail(run_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.report_detail(run_id))
+
+
+@api.route('/performance/reports/<int:run_id>/metrics', methods=['GET'])
+@login_required
+@permission_required('performance:report:detail')
+def performance_report_metrics(run_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.report_metrics(run_id))
+
+
+@api.route('/performance/reports/<int:run_id>/gate-results', methods=['GET'])
+@login_required
+@permission_required('performance:report:detail')
+def performance_report_gate_results(run_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.report_gate_results(run_id))
+
+
+@api.route('/performance/reports/<int:run_id>/native', methods=['GET'])
+@login_required
+@permission_required('performance:report:detail')
+def performance_report_native(run_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.report_native(run_id))
+
+
+@api.route('/performance/reports/<int:run_id>/ai-analysis', methods=['POST'])
+@login_required
+@permission_required('performance:report:ai')
+def performance_report_ai_analysis(run_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.report_ai_analysis(run_id))
+
+
+@api.route('/performance/baselines', methods=['GET'])
+@login_required
+@permission_required('performance:baseline:list')
+def performance_baseline_list():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, controller.baseline_list)
+
+
+@api.route('/performance/baselines/from-run', methods=['POST'])
+@login_required
+@permission_required('performance:baseline:save')
+def performance_baseline_from_run():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.baseline_from_run)
+
+
+@api.route('/performance/baselines/<int:baseline_id>/active', methods=['PUT'])
+@login_required
+@permission_required('performance:baseline:save')
+def performance_baseline_active(baseline_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.baseline_active(baseline_id))
+
+
+@api.route('/performance/baselines/<int:baseline_id>/deprecated', methods=['PUT'])
+@login_required
+@permission_required('performance:baseline:save')
+def performance_baseline_deprecated(baseline_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.baseline_deprecated(baseline_id))
+
+
+@api.route('/performance/monitor-sources', methods=['GET'])
+@login_required
+@permission_required('performance:monitor:list')
+def performance_monitor_source_list():
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, controller.monitor_source_list)
+
+
+@api.route('/performance/monitor-sources', methods=['POST'])
+@login_required
+@permission_required('performance:monitor:save')
+def performance_monitor_source_create():
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, controller.monitor_source_create)
+
+
+@api.route('/performance/monitor-sources/<int:source_id>', methods=['GET'])
+@login_required
+@permission_required('performance:monitor:list')
+def performance_monitor_source_detail(source_id):
+    controller = PerformanceController(request.args)
+    return _performance_response(controller, lambda: controller.monitor_source_detail(source_id))
+
+
+@api.route('/performance/monitor-sources/<int:source_id>', methods=['PUT'])
+@login_required
+@permission_required('performance:monitor:save')
+def performance_monitor_source_update(source_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.monitor_source_update(source_id))
+
+
+@api.route('/performance/monitor-sources/<int:source_id>', methods=['DELETE'])
+@login_required
+@permission_required('performance:monitor:delete')
+def performance_monitor_source_delete(source_id):
+    controller = PerformanceController(request.get_json() or {})
+    return _performance_response(controller, lambda: controller.monitor_source_delete(source_id))
+
+
+# =========================
 # 需求问答 / 知识库接口
 # =========================
 
@@ -2632,4 +2997,227 @@ def ai_report_list():
 def ai_report_detail():
     controller = AiReportController(request.args)
     return _ai_response(controller, controller.report_detail)
+
+
+# =========================
+# AI 精准测试与增量覆盖率接口
+# =========================
+
+
+def _precise_response(controller, action, id_key='id'):
+    try:
+        result = action()
+        if isinstance(result, tuple) and len(result) == 2:
+            ret, err_msg = result
+        else:
+            ret, err_msg = result, ''
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        if isinstance(ret, int):
+            return ApiResponse.build_success(20000, data={id_key: ret})
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/precise/analysis/create', methods=['POST'])
+@login_required
+@permission_required('precise:analysis:create')
+def precise_analysis_create():
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, controller.analysis_create, 'analysisId')
+
+
+@api.route('/precise/analysis/list', methods=['GET'])
+@login_required
+@permission_required('precise:analysis:list')
+def precise_analysis_list():
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, controller.analysis_list)
+
+
+@api.route('/precise/analysis/<int:analysis_id>', methods=['GET'])
+@login_required
+@permission_required('precise:analysis:detail')
+def precise_analysis_detail(analysis_id):
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, lambda: controller.analysis_detail(analysis_id))
+
+
+@api.route('/precise/analysis/<int:analysis_id>/parse-diff', methods=['POST'])
+@login_required
+@permission_required('precise:analysis:parse')
+def precise_analysis_parse_diff(analysis_id):
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, lambda: controller.parse_diff(analysis_id))
+
+
+@api.route('/precise/analysis/<int:analysis_id>/ai-impact', methods=['POST'])
+@login_required
+@permission_required('precise:analysis:ai')
+def precise_analysis_ai_impact(analysis_id):
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, lambda: controller.ai_impact(analysis_id))
+
+
+@api.route('/precise/relations/list', methods=['GET'])
+@login_required
+@permission_required('precise:relation:list')
+def precise_relation_list():
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, controller.relation_list)
+
+
+@api.route('/precise/relations/create', methods=['POST'])
+@login_required
+@permission_required('precise:relation:create')
+def precise_relation_create():
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, controller.relation_create, 'relationId')
+
+
+@api.route('/precise/relations/<int:relation_id>', methods=['PUT'])
+@login_required
+@permission_required('precise:relation:update')
+def precise_relation_update(relation_id):
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, lambda: controller.relation_update(relation_id), 'relationId')
+
+
+@api.route('/precise/relations/<int:relation_id>', methods=['DELETE'])
+@login_required
+@permission_required('precise:relation:delete')
+def precise_relation_delete(relation_id):
+    controller = PreciseTestController(request.get_json(silent=True) or {})
+    return _precise_response(controller, lambda: controller.relation_delete(relation_id), 'relationId')
+
+
+@api.route('/precise/relations/import', methods=['POST'])
+@login_required
+@permission_required('precise:relation:import')
+def precise_relation_import():
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, controller.relation_import)
+
+
+@api.route('/precise/analysis/<int:analysis_id>/recommend', methods=['POST'])
+@login_required
+@permission_required('precise:recommend:create')
+def precise_recommendation_generate(analysis_id):
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, lambda: controller.recommendation_generate(analysis_id))
+
+
+@api.route('/precise/analysis/<int:analysis_id>/recommendations', methods=['GET'])
+@login_required
+@permission_required('precise:recommend:list')
+def precise_recommendation_list(analysis_id):
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, lambda: controller.recommendation_list(analysis_id))
+
+
+@api.route('/precise/recommendations/accept', methods=['POST'])
+@login_required
+@permission_required('precise:recommend:accept')
+def precise_recommendation_accept():
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, controller.recommendation_accept)
+
+
+@api.route('/precise/analysis/<int:analysis_id>/execute', methods=['POST'])
+@login_required
+@permission_required('precise:execute:create')
+def precise_execute(analysis_id):
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, lambda: controller.execute(analysis_id))
+
+
+@api.route('/precise/executions/sync-jenkins', methods=['POST'])
+@login_required
+@permission_required('precise:execution:sync')
+def precise_execution_sync_jenkins():
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, controller.sync_jenkins)
+
+
+@api.route('/precise/executions/list', methods=['GET'])
+@login_required
+@permission_required('precise:execution:list')
+def precise_execution_list():
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, controller.execution_list)
+
+
+@api.route('/precise/executions/<int:execution_id>', methods=['GET'])
+@login_required
+@permission_required('precise:execution:list')
+def precise_execution_detail(execution_id):
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, lambda: controller.execution_detail(execution_id))
+
+
+@api.route('/precise/coverage/upload', methods=['POST'])
+@login_required
+@permission_required('precise:coverage:upload')
+def precise_coverage_upload():
+    controller = PreciseTestController(request)
+    return _precise_response(controller, controller.coverage_upload)
+
+
+@api.route('/precise/coverage/list', methods=['GET'])
+@login_required
+@permission_required('precise:coverage:detail')
+def precise_coverage_list():
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, controller.coverage_list)
+
+
+@api.route('/precise/coverage/pull-from-jenkins', methods=['POST'])
+@login_required
+@permission_required('precise:coverage:pull')
+def precise_coverage_pull_from_jenkins():
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, controller.coverage_pull_from_jenkins)
+
+
+@api.route('/precise/coverage/<int:coverage_id>', methods=['GET'])
+@login_required
+@permission_required('precise:coverage:detail')
+def precise_coverage_detail(coverage_id):
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, lambda: controller.coverage_detail(coverage_id))
+
+
+@api.route('/precise/coverage/<int:coverage_id>/calculate-incremental', methods=['POST'])
+@login_required
+@permission_required('precise:coverage:calculate')
+def precise_coverage_calculate_incremental(coverage_id):
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, lambda: controller.calculate_incremental(coverage_id))
+
+
+@api.route('/precise/coverage/<int:coverage_id>/ai-risk-analysis', methods=['POST'])
+@login_required
+@permission_required('precise:coverage:ai')
+def precise_coverage_ai_risk_analysis(coverage_id):
+    controller = PreciseTestController(request.get_json() or {})
+    return _precise_response(controller, lambda: controller.ai_risk_analysis(coverage_id))
+
+
+@api.route('/precise/gate/evaluate', methods=['POST'])
+@login_required
+@permission_required('precise:gate:evaluate')
+def precise_gate_evaluate():
+    req_json = request.get_json() or {}
+    analysis_id = req_json.get('analysisId') or req_json.get('analysis_id')
+    controller = PreciseTestController(req_json)
+    return _precise_response(controller, lambda: controller.gate_evaluate(analysis_id))
+
+
+@api.route('/precise/gate/result/<int:analysis_id>', methods=['GET'])
+@login_required
+@permission_required('precise:gate:result')
+def precise_gate_result(analysis_id):
+    controller = PreciseTestController(request.args)
+    return _precise_response(controller, lambda: controller.gate_result(analysis_id))
 

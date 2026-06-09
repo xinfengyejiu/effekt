@@ -90,6 +90,9 @@ JENKINS_BASE_URL = os.environ.get('JENKINS_BASE_URL', 'http://39.170.26.156:8256
 JENKINS_USER = os.environ.get('JENKINS_USER', 'jenkins')
 JENKINS_TOKEN = os.environ.get('JENKINS_TOKEN', 'jenkins')
 JENKINS_DEFAULT_JOB = os.environ.get('JENKINS_DEFAULT_JOB', 'pytest-auto-runner')
+PERFORMANCE_JENKINS_JOB = os.environ.get('PERFORMANCE_JENKINS_JOB', 'performance-runner')
+PERFORMANCE_JENKINS_VIEW_URL = os.environ.get('PERFORMANCE_JENKINS_VIEW_URL', 'http://39.170.26.156:8256/view/%E8%87%AA%E5%8A%A8%E5%8C%96%E6%B5%8B%E8%AF%95/')
+PRECISE_JENKINS_JOB = os.environ.get('PRECISE_JENKINS_JOB', 'precise-test-runner')
 AUTOMATION_CALLBACK_SECRET = os.environ.get('AUTOMATION_CALLBACK_SECRET', '')
 PLATFORM_BASE_URL = os.environ.get('PLATFORM_BASE_URL', 'http://127.0.0.1:5010/it/api')
 
