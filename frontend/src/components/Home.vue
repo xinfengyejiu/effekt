@@ -513,6 +513,7 @@ export default {
       if (p.indexOf('/requirement-qa') === 0 || n === '需求问答') return 34
       if (p.indexOf('/performance') === 0 || n === '性能测试') return 35
       if (p.indexOf('/mock') === 0 || n === 'mock服务' || n === 'Mock服务') return 36
+      if (p.indexOf('/precise') === 0 || n === '精准测试' || n.indexOf('精准') === 0) return 39
       if (p.indexOf('/system') === 0 || n === '系统管理') return 40
       return 50
     },
