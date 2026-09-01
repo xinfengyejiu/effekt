@@ -102,6 +102,7 @@
         </el-form-item>
         <el-form-item class="bug-column-setting-item">
           <div class="bug-table-toolbar-actions">
+            <el-button size="small" @click="openBugImportDialog">导入Excel</el-button>
             <el-button size="small" @click="fillCreatedByMe">由我创建的</el-button>
             <el-button size="small" @click="fillAssignedToMe">指派给我的</el-button>
             <el-popover v-model="columnSettingVisible" placement="bottom-end" width="300" trigger="click">
@@ -163,12 +164,41 @@
           @current-change="handleCurrentChange" />
       </div>
     </page-section>
+
+    <el-dialog title="批量上传" :visible.sync="bugImportDialogVisible" width="720px" @close="resetBugImportDialog">
+      <div class="bug-import-panel">
+        <div class="bug-import-title">上传 Bug</div>
+        <div class="bug-import-subtitle">仅支持 xlsx 文件，系统将按表头解析 Bug 数据</div>
+        <el-form class="bug-import-form" :model="importForm" label-width="72px" size="small">
+          <el-form-item label="产品">
+            <el-select v-model="importForm.productId" filterable placeholder="请选择产品" style="width: 100%;" @change="handleImportProductChange">
+              <el-option v-for="p in productOptions" :key="p.id" :label="p.name" :value="p.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="项目">
+            <el-select v-model="importForm.projectId" filterable placeholder="请选择项目" style="width: 100%;" :disabled="!importForm.productId">
+              <el-option v-for="p in importProjectOptions" :key="p.id" :label="p.name" :value="p.id" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <div class="bug-import-dropzone" @dragover.prevent @drop.prevent="onImportFileDrop">
+          <div class="bug-import-drop-text">拖拽文件到此处，或<span class="link-text" @click="triggerImportFileSelect">点击选择</span></div>
+          <div class="bug-import-file-tip">必填列：标题。可选列：模块、描述、类型、严重程度、优先级、状态、当前指派、创建人、环境、复现步骤、解决方案、解决版本、解决人、复现率</div>
+          <div v-if="importFile" class="bug-import-file-name">当前文件：{{ importFile.name }}</div>
+          <input ref="importFileInput" class="hidden-file-input" type="file" accept=".xlsx" @change="onImportFileChange">
+        </div>
+        <div class="bug-import-actions">
+          <el-button type="text" @click="downloadBugImportTemplate">下载标准模板</el-button>
+          <el-button type="primary" :disabled="!importFile || !importForm.productId || !importForm.projectId" :loading="importSubmitting" @click="submitBugImport">开始上传并解析</el-button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import PageSection from '@/components/TestPlatform/common/PageSection'
-import { getBugList, deleteBug } from '@/api/bugApi'
+import { getBugList, deleteBug, importBugExcel, downloadBugImportTemplate } from '@/api/bugApi'
 import { recordBugHistory } from '@/utils/bugHistory'
 import { getProductList } from '@/api/productApi'
 import { getProjectList, getProjectMembers } from '@/api/projectApi'
@@ -213,6 +243,14 @@ export default {
     return {
       columnSettingVisible: false,
       moreFilterVisible: false,
+      bugImportDialogVisible: false,
+      importSubmitting: false,
+      importFile: null,
+      importForm: {
+        productId: '',
+        projectId: ''
+      },
+      importProjectOptions: [],
       loading: false,
       productOptions: [],
       projectOptions: [],
@@ -337,6 +375,13 @@ export default {
         ])
       })
     },
+    normalizeProjectOptions(list) {
+      return (Array.isArray(list) ? list : []).map(item => {
+        const id = item.id || item.project_id || item.projectId
+        const name = item.name || item.project_name || item.projectName || item.title || String(id || '')
+        return Object.assign({}, item, { id, name })
+      }).filter(item => item.id !== undefined && item.id !== null && item.id !== '')
+    },
     loadProjects(productId) {
       if (!productId) {
         this.projectOptions = []
@@ -344,7 +389,7 @@ export default {
       }
       return getProjectList({ pageNo: 1, pageSize: 1000, status: 1, productId }).then(res => {
         const data = (res && res.data) || res || {}
-        this.projectOptions = data.items || data.list || data.data || []
+        this.projectOptions = this.normalizeProjectOptions(data.items || data.list || data.data || [])
       }).catch(() => { this.projectOptions = [] })
     },
     loadModules(projectId) {
@@ -397,6 +442,105 @@ export default {
       const name = u.realName || u.username || '当前用户'
       this.memberOptions = [{ id, name }, ...(this.memberOptions || [])]
       this.rebuildAssigneeMap()
+    },
+    openBugImportDialog() {
+      this.importForm.productId = this.queryForm.productId || ''
+      this.importForm.projectId = this.queryForm.projectId || ''
+      this.loadProductOptions()
+      if (this.importForm.productId) {
+        this.loadImportProjectOptions(this.importForm.productId).then(() => {
+          if (this.importForm.projectId && !(this.importProjectOptions || []).some(p => String(p.id) === String(this.importForm.projectId))) {
+            this.importForm.projectId = ''
+          }
+        })
+      } else {
+        this.importProjectOptions = []
+      }
+      this.bugImportDialogVisible = true
+    },
+    handleImportProductChange(productId) {
+      this.importForm.projectId = ''
+      this.loadImportProjectOptions(productId)
+    },
+    loadImportProjectOptions(productId) {
+      if (!productId) {
+        this.importProjectOptions = []
+        return Promise.resolve()
+      }
+      return getProjectList({ pageNo: 1, pageSize: 1000, status: 1, productId }).then(res => {
+        const data = (res && res.data) || res || {}
+        this.importProjectOptions = this.normalizeProjectOptions(data.items || data.list || data.data || [])
+      }).catch(() => { this.importProjectOptions = [] })
+    },
+    resetBugImportDialog() {
+      this.importFile = null
+      this.importForm = { productId: '', projectId: '' }
+      this.importProjectOptions = []
+      if (this.$refs.importFileInput) this.$refs.importFileInput.value = ''
+    },
+    triggerImportFileSelect() {
+      this.$refs.importFileInput && this.$refs.importFileInput.click()
+    },
+    onImportFileChange(event) {
+      const files = event && event.target && event.target.files ? event.target.files : []
+      this.setImportFile(files[0])
+    },
+    onImportFileDrop(event) {
+      const files = event && event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : []
+      this.setImportFile(files[0])
+    },
+    setImportFile(file) {
+      if (!file) return
+      const lowerName = String(file.name || '').toLowerCase()
+      if (!lowerName.endsWith('.xls') && !lowerName.endsWith('.xlsx')) {
+        this.$message.warning('仅支持 .xlsx 和 .xls 文件')
+        return
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        this.$message.warning('文件大小不能超过 20MB')
+        return
+      }
+      this.importFile = file
+    },
+    downloadBugImportTemplate() {
+      downloadBugImportTemplate().then(res => {
+        const blob = new Blob([res], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = 'Bug导入模板.xlsx'
+        link.click()
+        window.URL.revokeObjectURL(url)
+      })
+    },
+    submitBugImport() {
+      if (!this.importForm.productId) {
+        this.$message.warning('请先选择产品')
+        return
+      }
+      if (!this.importForm.projectId) {
+        this.$message.warning('请先选择项目')
+        return
+      }
+      if (!this.importFile) {
+        this.$message.warning('请先选择导入文件')
+        return
+      }
+      this.importSubmitting = true
+      importBugExcel(this.importForm.productId, this.importForm.projectId, this.importFile).then(res => {
+        const data = (res && res.data) || {}
+        this.$message.success(data.message || '导入并解析成功')
+        this.bugImportDialogVisible = false
+        this.queryForm.productId = this.importForm.productId
+        this.queryForm.projectId = this.importForm.projectId
+        saveLastProductProjectCache(this.queryForm.productId, this.queryForm.projectId)
+        return Promise.all([this.loadProjects(this.queryForm.productId), this.loadModules(this.queryForm.projectId), this.loadMembers(this.queryForm.projectId)])
+      }).then(() => {
+        this.pageNo = 1
+        this.fetchList()
+      }).finally(() => {
+        this.importSubmitting = false
+      })
     },
     fillCreatedByMe() {
       const u = this.currentUser
@@ -612,7 +756,7 @@ export default {
       this.$router.push({ path: '/bug/detail', query: { bugId: row.id } })
     },
     goEdit(row) {
-      this.$router.push({ path: '/bug/edit', query: { bugId: row.id } })
+      this.$router.push({ path: '/bug/edit', query: { bugId: row.id, from: 'list' } })
     },
     copyBug(row) {
       const id = row && (row.id != null ? row.id : row.bugId)
@@ -717,5 +861,75 @@ export default {
   color: #606266;
   font-weight: 500;
   margin-bottom: 8px;
+}
+
+.bug-import-panel {
+  padding: 2px 4px 0;
+}
+
+.bug-import-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 6px;
+}
+
+.bug-import-subtitle {
+  font-size: 13px;
+  color: #909399;
+  margin-bottom: 16px;
+}
+
+.bug-import-form {
+  max-width: 520px;
+}
+
+.bug-import-dropzone {
+  border: 1px dashed #c0c4cc;
+  border-radius: 6px;
+  background: #fafafa;
+  padding: 28px 18px;
+  text-align: center;
+  transition: border-color .2s, background .2s;
+}
+
+.bug-import-dropzone:hover {
+  border-color: #1e40af;
+  background: #f5f9ff;
+}
+
+.bug-import-drop-text {
+  font-size: 14px;
+  color: #606266;
+}
+
+.link-text {
+  color: #1e40af;
+  cursor: pointer;
+  margin: 0 2px;
+}
+
+.bug-import-file-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #909399;
+}
+
+.bug-import-file-name {
+  margin-top: 10px;
+  color: #303133;
+  font-size: 13px;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.bug-import-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
 }
 </style>

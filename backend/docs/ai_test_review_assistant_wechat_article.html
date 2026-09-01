@@ -1,0 +1,151 @@
+<section style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #2b2f36; line-height: 1.75; font-size: 16px;">
+  <section style="text-align: center; margin: 8px 0 24px;">
+    <h2 style="font-size: 22px; font-weight: bold; color: #1f2937; margin: 0; line-height: 1.45;">
+      让测试评审从“靠经验判断”变成“结构化结论”
+    </h2>
+    <p style="font-size: 15px; color: #4b5563; margin: 8px 0 0;">
+      效能平台新增 AI 测试评审助手
+    </p>
+  </section>
+
+  <blockquote style="border-left: 4px solid #2563eb; padding: 10px 15px; background-color: #f3f7ff; color: #374151; font-size: 15px; line-height: 1.7; margin: 0 0 22px;">
+    测试评审真正需要沉淀的，不只是一句“建议通过”，而是风险等级、缺失测试点、建议用例和后续动作。
+  </blockquote>
+
+  <p style="margin: 0 0 14px;">每次需求评审、变更评审、缺陷回归评审和发布前评审，测试团队最难的往往不是“有没有开会”，而是“评审结论能不能沉淀下来”。</p>
+  <p style="margin: 0 0 14px;">需求文档在一个地方，代码变更在一个地方，用例在一个地方，缺陷记录在另一个地方。评审会上大家讨论了很多风险点，但会后真正落到平台里的，可能只剩下一句“建议补充后通过”。</p>
+  <p style="margin: 0 0 18px;">这也是我们这次在效能平台里补上 <strong>AI测试评审助手</strong> 的原因：把需求、变更、用例、缺陷、发布前信息聚合起来，让平台生成结构化测试评审结论，并把风险项和建议用例继续沉淀到后续测试流程里。</p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">一、为什么测试评审需要平台化？</h3>
+  </section>
+  <p style="margin: 0 0 12px;">传统测试评审常见三个问题。</p>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li style="margin-bottom: 8px;"><strong>信息散。</strong>需求、变更、历史用例、缺陷、覆盖率、质量门禁分散在不同页面，评审时需要人工来回查。</li>
+    <li style="margin-bottom: 8px;"><strong>结论散。</strong>很多评审只有口头判断，没有统一的风险等级、评分、阻断建议和后续动作。</li>
+    <li style="margin-bottom: 8px;"><strong>动作散。</strong>评审发现风险后，建议补哪些用例、哪些风险需要跟踪、哪些用例已经导入，往往没有形成闭环。</li>
+  </ul>
+  <p style="margin: 0 0 18px;">AI测试评审助手要解决的，就是把“评审”从一次讨论，变成一条可追踪的质量记录。</p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">二、这次新增了什么？</h3>
+  </section>
+  <p style="margin: 0 0 14px;">这次新增的 AI测试评审助手，围绕一张评审任务、一份上下文、一份 AI 结构化结论，以及两个后续动作表展开。</p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">1. 评审任务管理</h4>
+  <p style="margin: 0 0 12px;">平台新增独立的 AI测试评审任务，不再塞进原来的 AI测试中枢大页面。</p>
+  <p style="margin: 0 0 12px;">评审任务支持产品、项目、评审类型、来源类型、状态、风险等级和关键词筛选。列表里可以直接看到评审编号、标题、风险等级、评分、状态和创建时间。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：评审任务要能查、能追、能复盘。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">2. 多种评审类型</h4>
+  <p style="margin: 0 0 12px;">第一版固定支持五类评审：</p>
+  <ul style="padding-left: 22px; margin: 0 0 14px;">
+    <li>需求评审</li>
+    <li>代码变更评审</li>
+    <li>用例评审</li>
+    <li>缺陷回归评审</li>
+    <li>发布前评审</li>
+  </ul>
+  <p style="margin: 0 0 12px;">不同类型对应不同的测试关注点。比如需求评审更关注需求缺口和边界条件，变更评审更关注影响范围和回归覆盖，缺陷回归评审更关注复现路径、修复验证和历史问题反复。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：评审不再只有一种模板，而是按场景组织。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">3. 评审来源选择</h4>
+  <p style="margin: 0 0 12px;">评审来源支持手工输入、需求文档、精准测试分析、测试用例、缺陷和发布前信息。</p>
+  <p style="margin: 0 0 12px;">第一版先用 sourceId 输入，保持流程轻量。后续可以继续增强为弹窗选择文档、变更分析、缺陷和用例。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：AI 评审不只看用户输入的一段话，而是能接入平台已有数据。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">4. 上下文聚合</h4>
+  <p style="margin: 0 0 12px;">后端新增了独立的上下文聚合服务，会把不同来源整理成统一结构：</p>
+  <section style="background-color: #f8fafc; border: 1px solid #e5e7eb; padding: 12px 14px; margin: 0 0 14px;">
+    <p style="margin: 0; font-size: 14px; color: #374151;">来源摘要 / 已有用例 / 变更摘要 / 缺陷摘要 / 覆盖率摘要 / 原始文本</p>
+  </section>
+  <p style="margin: 0 0 12px;">如果来源是精准测试分析，平台会聚合变更文件、推荐用例、覆盖率、质量门禁等信息。如果来源是缺陷，会读取模块、严重程度、描述、处理状态。如果来源是发布前评审，则可以聚合精准测试结果。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：AI 不是孤立生成，而是基于平台上下文生成。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">5. AI结构化评审</h4>
+  <p style="margin: 0 0 12px;">AI 输出不再是自由文本，而是固定结构：</p>
+  <ul style="padding-left: 22px; margin: 0 0 14px;">
+    <li>评审结论、风险等级、评分</li>
+    <li>摘要、缺失测试点、风险发现</li>
+    <li>建议用例、推荐动作、阻断建议</li>
+  </ul>
+  <p style="margin: 0 0 12px;">如果 AI 服务不可用，平台也会基于上下文生成本地兜底结论，避免流程卡死。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：评审结论要能被页面展示、被数据库保存、被后续流程消费。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">6. 风险发现管理</h4>
+  <p style="margin: 0 0 12px;">AI 识别出的风险项会写入风险发现表。每条风险可以包含风险类型、风险等级、模块、接口路径、标题、描述、建议和证据。</p>
+  <p style="margin: 0 0 12px;">风险项支持 open、accepted、ignored、fixed 四种状态流转。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：风险不是看完就结束，而是要被接收、忽略、修复或持续跟踪。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">7. 建议用例管理</h4>
+  <p style="margin: 0 0 12px;">AI 生成的建议用例会单独沉淀，包括模块、用例标题、前置条件、步骤、预期结果、优先级、用例类型、标签和关联状态。</p>
+  <p style="margin: 0 0 12px;">建议用例不是直接强塞进用例库，而是先作为建议存在，由测试人员确认后再导入或关联。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：AI 给建议，人来把关，平台来沉淀。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">8. 一键导入或关联用例</h4>
+  <p style="margin: 0 0 12px;">详情页支持把建议用例导入到现有测试用例库，也支持关联已有测试用例。</p>
+  <p style="margin: 0 0 12px;">导入时会保留项目、模块、优先级、用例类型、前置条件、步骤、预期结果和标签，并标记为 AI 生成用例。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：评审发现的测试缺口可以直接变成测试资产。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">9. 独立页面与权限菜单</h4>
+  <p style="margin: 0 0 12px;">前端新增独立的 AIReview 页面组，包括评审列表、新建评审和评审详情。</p>
+  <p style="margin: 0 0 12px;">同时补齐菜单、路由、接口和权限。左侧菜单会显示“AI测试评审”，权限包含列表、创建、详情、执行、确认和用例导入。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：功能不是隐藏接口，而是变成平台里可见、可用、可管的入口。</strong></p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">三、完整流程长什么样？</h3>
+  </section>
+  <section style="text-align: center; background-color: #f3f7ff; padding: 14px 10px; margin: 0 0 18px; color: #1f2937; font-size: 15px;">
+    创建评审任务 -> 选择评审来源 -> 聚合上下文 -> 执行AI评审 -> 生成结构化结论 -> 跟踪风险项 -> 导入或关联建议用例 -> 人工确认评审
+  </section>
+  <p style="margin: 0 0 12px;">它的价值不在于“AI 写了一段总结”，而在于把评审过程拆成了可以落库、可以查看、可以操作、可以追踪的工程化流程。</p>
+  <p style="margin: 0 0 12px;">评审会后，平台能回答这些问题：</p>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li>这次评审结论是什么？</li>
+    <li>风险等级是多少？</li>
+    <li>哪些测试点缺失？</li>
+    <li>哪些风险需要跟踪？</li>
+    <li>哪些建议用例已经导入？</li>
+    <li>哪些建议用例只是关联已有用例？</li>
+    <li>最终是否人工确认通过？</li>
+  </ul>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">四、适合哪些场景？</h3>
+  </section>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li style="margin-bottom: 8px;">适合需求变更多、交付节奏快的团队。每次需求都能沉淀评审结论，避免靠会议记忆推进测试。</li>
+    <li style="margin-bottom: 8px;">适合精准测试已经接入的平台。AI测试评审可以复用变更分析、推荐用例、覆盖率和质量门禁结果。</li>
+    <li style="margin-bottom: 8px;">适合缺陷回归压力大的项目。缺陷修复后，平台可以帮助补充回归验证点和建议用例。</li>
+    <li style="margin-bottom: 8px;">适合需要发布前质量把关的团队。发布前评审可以把需求、变更、用例、缺陷、覆盖率和门禁信息放到一起看。</li>
+  </ul>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">五、落地后的收益</h3>
+  </section>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li>评审任务可管理</li>
+    <li>评审上下文可聚合</li>
+    <li>AI结论可结构化</li>
+    <li>风险发现可跟踪</li>
+    <li>建议用例可沉淀</li>
+    <li>评审结果可确认</li>
+    <li>权限菜单可管控</li>
+  </ul>
+  <p style="margin: 0 0 12px;">更重要的是，它把测试评审从“会后一句话”变成了“平台质量记录”。</p>
+  <p style="margin: 0 0 18px;">过去，评审更多依赖个人经验。现在，评审可以基于平台数据、AI 分析和人工确认共同完成。</p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">六、下一步还能增强什么？</h3>
+  </section>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li style="margin-bottom: 8px;">把来源选择从 sourceId 输入升级为可视化选择。比如选择需求文档、精准测试分析、缺陷或用例时，用弹窗直接检索。</li>
+    <li style="margin-bottom: 8px;">接入代码平台或 PR 流程。未来可以从 Gitea、GitLab 或其他代码平台自动创建变更评审。</li>
+    <li style="margin-bottom: 8px;">把风险项和测试计划、发布门禁打通。高风险未处理时，可以影响发布前质量门禁。</li>
+    <li style="margin-bottom: 8px;">沉淀评审知识库。把历史评审结论、风险项、建议用例反哺后续 AI 判断。</li>
+  </ul>
+
+  <blockquote style="border-left: 4px solid #2563eb; padding: 10px 15px; background-color: #f3f7ff; color: #374151; font-size: 15px; line-height: 1.7; margin: 22px 0 0;">
+    AI测试评审助手不是为了替代测试评审，而是为了让评审更完整、更可追踪、更容易落地。当平台能把“输入信息、评审结论、风险发现、建议用例、人工确认”串起来，测试评审就不再只是一次会议，而是一条可以持续改进的质量链路。
+  </blockquote>
+</section>

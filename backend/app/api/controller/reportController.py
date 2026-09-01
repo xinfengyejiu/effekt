@@ -45,3 +45,15 @@ class ReportController(BaseCrudController):
         if not plan_id:
             return 0, 'planId 为必传参数'
         return ReportService.generate_report(self.session, plan_id, self._get(self.req_data, 'generatedBy', 'generated_by'))
+
+    def report_delete(self):
+        """删除测试报告。"""
+        report_id = self._get(self.req_data, 'reportId', 'report_id', 'id')
+        if not report_id:
+            return 0, 'reportId 为必传参数'
+        return ReportService.delete_report(self.session, report_id)
+
+    def report_upload_html(self):
+        """上传 HTML 测试报告并落库。"""
+
+        return ReportService.upload_html_report(self.session, self.req_data.form, self.req_data.files)

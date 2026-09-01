@@ -86,6 +86,14 @@ export function executePlanCase(projectId, planId, planCaseId, data) {
   })
 }
 
+export function aiExecutePlanCase(projectId, planId, data) {
+  return request({
+    url: '/plan/case/ai-execute',
+    method: 'post',
+    data: Object.assign({ project_id: projectId, plan_id: planId }, data || {})
+  })
+}
+
 export function getPlanProgress(projectId, planId) {
   return request({
     url: '/plan/progress',

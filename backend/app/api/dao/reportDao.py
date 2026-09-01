@@ -19,8 +19,22 @@ class ReportDao(object):
         return session.query(model_cls).filter(model_cls.id == int(obj_id)).first()
 
     @staticmethod
+    def delete_by_id(session, model_cls, obj_id):
+        obj = session.query(model_cls).filter(model_cls.id == int(obj_id)).first()
+        if not obj:
+            return 0, '未查询到对应记录！'
+        session.session.delete(obj)
+        err = session.done(close=False)
+        if err:
+
+            logger.error(f'{model_cls.__name__}删除失败！id: {obj_id}, err: {err}')
+            return 0, f'删除失败！{err}'
+        return int(obj_id), ''
+
+    @staticmethod
     def list_by_filters(session, model_cls, filter_list, page=1, limit=20, order_column=None, asc=False):
         query = session.query(model_cls).filter(*filter_list)
+
         total = query.count()
         if order_column is not None:
             query = query.order_by(order_column.asc() if asc else order_column.desc())

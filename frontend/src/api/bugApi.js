@@ -68,6 +68,26 @@ export function getBugStats(params) {
   })
 }
 
+export function importBugExcel(productId, projectId, file) {
+  const formData = new FormData()
+  formData.append('productId', productId)
+  formData.append('projectId', projectId)
+  formData.append('file', file)
+  return request({
+    url: '/bug/import',
+    method: 'post',
+    data: formData
+  })
+}
+
+export function downloadBugImportTemplate() {
+  return request({
+    url: '/bug/import/template',
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
 /** 复现步骤截图：POST /bug/upload，表单字段 file；成功返回 data.url */
 export function uploadBugStepImage(file) {
   const formData = new FormData()

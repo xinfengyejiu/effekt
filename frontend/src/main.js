@@ -10,9 +10,9 @@ import 'element-ui/lib/theme-chalk/index.css';
 import axios from 'axios'
 
 function applyInitialTheme() {
-  const theme = localStorage.getItem('uiTheme') || 'dark'
+  const theme = localStorage.getItem('uiTheme') || 'light'
   document.body.classList.remove('theme-dark', 'theme-light')
-  document.body.classList.add(theme === 'light' ? 'theme-light' : 'theme-dark')
+  document.body.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light')
 }
 applyInitialTheme()
 

@@ -2,14 +2,14 @@
 import os
 import uuid
 from datetime import datetime
-from flask import current_app
+from flask import current_app, g
 
 from .baseCrudController import BaseCrudController
 from ..model.bugModel import Bug, BugComment
 from ..model.productModel import Product
 from ..model.projectModel import Project
 from ..model.userModel import User
-from ..model.caseModel import Module
+from ..model.caseModel import Module, TestCase
 from ..service.bugService import BugService
 from ..service.userService import UserService
 
@@ -153,6 +153,11 @@ class BugController(BaseCrudController):
         if item.module_id:
             module = self.session.query(Module).filter(Module.id == item.module_id, Module.is_delete == 0).first()
             ret['module_name'] = module.name if module else ''
+
+        if item.case_id:
+            case = self.session.query(TestCase).filter(TestCase.id == item.case_id, TestCase.is_delete == 0).first()
+            ret['case_key'] = case.case_key if case else ''
+            ret['case_title'] = case.title if case else ''
         
         if item.resolved_by:
             resolved_by_user = self.session.query(User).filter(User.id == item.resolved_by, User.is_delete == 0).first()
@@ -318,6 +323,180 @@ class BugController(BaseCrudController):
         if not content:
             return 0, 'content 为必传参数'
         return BugService.add_comment(self.session, bug_id, content, user_id)
+
+    def bug_import(self, file_path, project_id, product_id=None):
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            return 0, '请先安装 openpyxl 依赖'
+
+        if not os.path.exists(file_path):
+            return 0, '文件不存在'
+        if not project_id:
+            return 0, 'projectId 为必传参数'
+
+        try:
+            project_id_int = int(project_id)
+            product_id_int = int(product_id) if product_id not in (None, '') else None
+        except (TypeError, ValueError):
+            return 0, '产品或项目参数格式不正确'
+
+        project = self.session.query(Project).filter(Project.id == project_id_int, Project.is_delete == 0).first()
+        if not project:
+            return 0, '项目不存在或已删除'
+        if product_id_int is not None and int(project.product_id or 0) != product_id_int:
+            return 0, '项目不属于所选产品'
+        product_id_int = product_id_int or int(project.product_id or 0)
+        if not product_id_int:
+            return 0, '项目未关联产品，无法导入 Bug'
+
+        wb = load_workbook(file_path)
+        sheet = wb.active
+        headers = {}
+        for col in range(1, sheet.max_column + 1):
+            header = self._cell_text(sheet, 1, col)
+            if header:
+                headers[header] = col
+
+        title_col = self._header_col(headers, '标题', 'Bug标题', 'bug标题', 'title')
+        if not title_col:
+            return 0, '缺少必要列: 标题'
+
+        module_map = self._build_module_name_map(project_id_int)
+        user_map = self._build_user_name_map()
+        current_user_id = getattr(g, 'current_user_id', None)
+        success_count = 0
+        fail_count = 0
+        fail_messages = []
+
+        for row in range(2, sheet.max_row + 1):
+            try:
+                title = self._cell_text(sheet, row, title_col)
+                if not title:
+                    if not self._row_has_value(sheet, row):
+                        continue
+                    fail_count += 1
+                    fail_messages.append(f'第{row}行：标题为空')
+                    continue
+
+                reporter_id = self._parse_user_id(self._cell_by_headers(sheet, headers, row, '创建人', '报告人', 'reporter'), user_map) or current_user_id
+                if not reporter_id:
+                    fail_count += 1
+                    fail_messages.append(f'第{row}行：创建人为空，且当前登录用户不存在')
+                    continue
+
+                bug_key = BugService.generate_bug_key(self.session)
+                bug = Bug(
+                    bug_key=bug_key,
+                    title=title[:256],
+                    description=self._cell_by_headers(sheet, headers, row, '描述', '问题描述', 'description'),
+                    bug_type=self._parse_enum(self._cell_by_headers(sheet, headers, row, '类型', 'Bug类型', 'bug_type'), {'功能': 1, '性能': 2, '安全': 3, '接口': 4}, 1),
+                    severity=self._parse_enum(self._cell_by_headers(sheet, headers, row, '严重程度', '严重级别', 'severity'), {'致命': 0, '严重': 1, '一般': 2, '轻微': 3}, 2),
+                    priority=self._parse_enum(self._cell_by_headers(sheet, headers, row, '优先级', 'priority'), {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}, 2),
+                    status=self._parse_enum(self._cell_by_headers(sheet, headers, row, '状态', 'status'), {'新建': 0, '待处理': 0, '处理中': 1, '已解决': 2, '已关闭': 3, '重新打开': 4}, 0),
+                    assignee_id=self._parse_user_id(self._cell_by_headers(sheet, headers, row, '当前指派', '指派给', '处理人', 'assignee'), user_map),
+                    reporter_id=reporter_id,
+                    product_id=product_id_int,
+                    project_id=project_id_int,
+                    module_id=self._parse_module_id(self._cell_by_headers(sheet, headers, row, '模块', '所属模块'), module_map),
+                    environment=self._cell_by_headers(sheet, headers, row, '环境', '测试环境', 'environment')[:64] or None,
+                    steps=self._cell_by_headers(sheet, headers, row, '复现步骤', '步骤', 'steps'),
+                    solution=self._cell_by_headers(sheet, headers, row, '解决方案', 'solution'),
+                    resolve_version=self._cell_by_headers(sheet, headers, row, '解决版本', '修复版本', 'resolve_version')[:64] or None,
+                    resolved_by=self._parse_user_id(self._cell_by_headers(sheet, headers, row, '解决人', 'resolved_by'), user_map),
+                    reproduce_rate=self._parse_enum(self._cell_by_headers(sheet, headers, row, '复现率', 'reproduce_rate'), {'必现': 0, '高': 1, '偶现': 2, '低': 3, '无法复现': 4}, None),
+                    is_delete=0
+                )
+                self.session.add(bug)
+                self.session.flush()
+                success_count += 1
+            except Exception as e:
+                fail_count += 1
+                fail_messages.append(f'第{row}行：导入失败 - {str(e)}')
+
+        try:
+            self.session.commit()
+            msg = f'导入完成：成功{success_count}条，失败{fail_count}条'
+            if fail_messages:
+                msg += f'。失败详情：{"; ".join(fail_messages[:10])}'
+                if len(fail_messages) > 10:
+                    msg += f'...（共{len(fail_messages)}条）'
+            return success_count, msg
+        except Exception as e:
+            self.session.rollback()
+            return 0, f'提交失败：{str(e)}'
+
+    @staticmethod
+    def _cell_text(sheet, row, col):
+        value = sheet.cell(row=row, column=col).value
+        return str(value).strip() if value not in (None, '') else ''
+
+    @staticmethod
+    def _header_col(headers, *names):
+        for name in names:
+            if name in headers:
+                return headers[name]
+        return None
+
+    def _cell_by_headers(self, sheet, headers, row, *names):
+        col = self._header_col(headers, *names)
+        return self._cell_text(sheet, row, col) if col else ''
+
+    @staticmethod
+    def _row_has_value(sheet, row):
+        for col in range(1, sheet.max_column + 1):
+            if sheet.cell(row=row, column=col).value not in (None, ''):
+                return True
+        return False
+
+    def _build_module_name_map(self, project_id):
+        modules = self.session.query(Module).filter(Module.project_id == project_id, Module.is_delete == 0).all()
+        result = {}
+        for module in modules:
+            if module.name:
+                result.setdefault(module.name.strip(), module.id)
+            if module.path:
+                result.setdefault(module.path.strip('/'), module.id)
+                result.setdefault(module.path.strip(), module.id)
+        return result
+
+    def _build_user_name_map(self):
+        users = self.session.query(User).filter(User.is_delete == 0).all()
+        result = {}
+        for user in users:
+            if user.id is not None:
+                result[str(user.id)] = user.id
+            for attr in ('real_name', 'username', 'name'):
+                value = getattr(user, attr, None)
+                if value:
+                    result[str(value).strip()] = user.id
+        return result
+
+    @staticmethod
+    def _parse_enum(value, mapping, default):
+        text = str(value or '').strip()
+        if not text:
+            return default
+        if text in mapping:
+            return mapping[text]
+        upper_text = text.upper()
+        if upper_text in mapping:
+            return mapping[upper_text]
+        return int(text) if text.isdigit() else default
+
+    @staticmethod
+    def _parse_user_id(value, user_map):
+        text = str(value or '').strip()
+        if not text:
+            return None
+        return user_map.get(text) or (int(text) if text.isdigit() else None)
+
+    @staticmethod
+    def _parse_module_id(value, module_map):
+        text = str(value or '').strip().strip('/')
+        if not text:
+            return None
+        return module_map.get(text) or (int(text) if text.isdigit() else None)
 
     def bug_stats(self):
         product_id = self._get(self.req_data, 'productId', 'product_id')

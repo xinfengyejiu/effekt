@@ -353,7 +353,7 @@ export default {
   overflow: auto;
   margin: 0;
   padding: 16px;
-  background: #0f172a;
+  background: #1e293b;
   border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-all;

@@ -38,11 +38,21 @@ class AIConfig:
     
     # 超时配置（秒）
     CONNECT_TIMEOUT = int(os.getenv('AI_CONNECT_TIMEOUT', '60'))
-    READ_TIMEOUT = int(os.getenv('AI_READ_TIMEOUT', '120'))
+    READ_TIMEOUT = int(os.getenv('AI_READ_TIMEOUT', '180'))
     
     # 重试配置
     MAX_RETRIES = int(os.getenv('AI_MAX_RETRIES', '3'))
     RETRY_DELAY = float(os.getenv('AI_RETRY_DELAY', '2.0'))
+    GATEWAY_RETRY_DELAY = float(os.getenv('AI_GATEWAY_RETRY_DELAY', '30.0'))
+    GATEWAY_MAX_RETRIES = int(os.getenv('AI_GATEWAY_MAX_RETRIES', '3'))
+    CASE_GENERATION_AGENT_CONCURRENCY = int(os.getenv('AI_CASE_GENERATION_AGENT_CONCURRENCY', '0'))
+    CASE_GENERATION_AGENT_MAX_WORKERS = int(os.getenv('AI_CASE_GENERATION_AGENT_MAX_WORKERS', '64'))
+    CASE_GENERATION_AGENT_TIMEOUT = int(os.getenv('AI_CASE_GENERATION_AGENT_TIMEOUT', '600'))
+    CASE_GENERATION_AGENT_IDLE_TIMEOUT = int(os.getenv('AI_CASE_GENERATION_AGENT_IDLE_TIMEOUT', '90'))
+    REVIEW_AGENT_CONCURRENCY = int(os.getenv('AI_REVIEW_AGENT_CONCURRENCY', '3'))
+    REVIEW_AGENT_CHUNK_SIZE = int(os.getenv('AI_REVIEW_AGENT_CHUNK_SIZE', '6000'))
+    REQUEST_CONCURRENCY = int(os.getenv('AI_REQUEST_CONCURRENCY', '2'))
+    REQUEST_MIN_INTERVAL = float(os.getenv('AI_REQUEST_MIN_INTERVAL', '5.0'))
     
     @staticmethod
     def get_api_key():

@@ -11,3 +11,6 @@ htmlcov/
 .plan/
 attachment/interface_address/
 *.docx
+resources/precise_repos/
+mobile-autotest/artifacts/
+mobile-autotest/runtime_steps*.jsonl

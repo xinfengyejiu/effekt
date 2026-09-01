@@ -436,7 +436,7 @@ export default {
       let option
       if (this.chartType === 'pie') {
         option = {
-          color: ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#9b59b6', '#3498db'],
+          color: ['#1e40af', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#9b59b6', '#3498db'],
           tooltip: { trigger: 'item' },
           legend: { bottom: 0, type: 'scroll' },
           series: [
@@ -457,7 +457,7 @@ export default {
         }
       } else {
         option = {
-          color: ['#409EFF'],
+          color: ['#1e40af'],
           tooltip: { trigger: 'axis' },
           grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
           xAxis: {
@@ -589,7 +589,7 @@ export default {
   color: #303133;
 }
 .tone-primary .stat-value {
-  color: #409eff;
+  color: #1e40af;
 }
 .tone-success .stat-value {
   color: #67c23a;

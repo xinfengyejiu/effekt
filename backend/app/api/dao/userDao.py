@@ -61,6 +61,16 @@ class UserDao(object):
     def replace_user_roles(session, user_id, role_ids):
         user_id = int(user_id)
         role_ids = [int(role_id) for role_id in role_ids]
+        # 同步 sys_user_role 序列：防止历史 SQL 直插导致序列滞后于 MAX(id)
+        try:
+            session.execute(
+                "SELECT setval("
+                "pg_get_serial_sequence('public.sys_user_role', 'id'), "
+                "GREATEST(COALESCE((SELECT MAX(id) FROM public.sys_user_role), 0), 1), "
+                "true)"
+            )
+        except Exception as _seq_err:
+            logger.warning(f'同步 sys_user_role 序列失败：{_seq_err}')
         session.query(UserRole).filter(UserRole.user_id == user_id, UserRole.is_delete == 0).update({'is_delete': 1})
         existing_items = session.query(UserRole).filter(UserRole.user_id == user_id).all()
         existing_map = {item.role_id: item for item in existing_items}

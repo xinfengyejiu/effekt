@@ -769,7 +769,7 @@ export default {
             )
             .then(() => {
               this.$message.success('保存成功')
-              this.$router.push({ path: '/bug/detail', query: { bugId: this.bugId } })
+              this.goBack()
             })
             .finally(() => {
               this.saving = false
@@ -778,7 +778,7 @@ export default {
       })
     },
     goBack() {
-      if (this.isCreate) {
+      if (this.isCreate || this.$route.query.from !== 'detail') {
         this.$router.push({ path: '/bug/list' })
       } else {
         this.$router.push({ path: '/bug/detail', query: { bugId: this.bugId } })

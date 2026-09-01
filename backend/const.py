@@ -1,18 +1,21 @@
 # encoding: UTF-8
+"""
+QualiSync 配置文件（开源版本）
+所有敏感配置均通过环境变量读取，请在 .env 文件中配置。
+参考 .env.example 获取完整的环境变量列表。
+"""
 import os
+import json
 from urllib.parse import quote_plus as urlquote
 from urllib.parse import quote
 
-# dev环境
-# BE_URL = '127.0.0.1:6080'
-# online环境
-BE_URL = '0.0.0.0:5010'
+# ── 服务地址 ─────────────────────────────────────────────
+BE_URL = os.environ.get('BE_URL', '0.0.0.0:5010')
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-# PROJDIR = os.path.dirname(BASEDIR)
 LOG_DIR = os.path.join(BASEDIR, 'logs')
 
-# 返回码
+# ── 返回码 ───────────────────────────────────────────────
 RES_CODE = {
     40001: 'URL不正确，请检查！',
     40002: '不支持该请求方法！',
@@ -29,74 +32,46 @@ RES_CODE = {
     40013: 'scene_id不能为空!'
 }
 
-sparkatp_sql_uri = f'postgresql+psycopg2://postgres:{urlquote("f267abd8-7005-472f-8cef-c1738c691c6c")}@39.170.26.156:8366/test'
-# sparkatp_sql_uri = f'postgresql+psycopg2://postgres:{urlquote("difyai123456")}@39.170.26.156:8366/test-platform-prod'
-EXECUTE_DB_CONFIG = {
-    'ZHYY': {
-        'st': {
-            'host': '124.220.32.45',
-            'port': 18666,
-            'user': 'postgres',
-            'password': '89c75b17-1738-4b7d-b651-4c65a5a662ab',
-            'database': 'smart_management_st'
-        },
-        'dev': {
-            'host': '124.220.32.45',
-            'port': 18566,
-            'user': 'postgres',
-            'password': 'f267abd8-7005-472f-8cef-c1738c691c6c',
-            'database': 'smart_management_st'
-        },
-        'pre': {
-            'host': '8.137.12.32',
-            'port': 8096,
-            'user': 'sm_test_user',
-            'password': 'Test@736141',
-            'database': 'smart_management_pre'
-        }
-    },
-    'DLZ': {
-        'st': {
-            'host': '124.220.32.45',
-            'port': 18666,
-            'user': 'joyhub',
-            'password': 'e364be29-6089-4610-97d5-0037a28d0703',
-            'database': 'joyhub_website_st'
-        }
-    }
-}
-# MySQL 数据库（保留原配置供参考）
-# sparkatp_sql_uri = 'mysql+pymysql://qa-dev:jaeg3SCQt0@mysql.qa.huohua.cn/sparkatp?charset=utf8mb4'
-# password = urlquote("peppa@test")
+# ── 主数据库连接 ──────────────────────────────────────────
+# 格式: postgresql+psycopg://user:password@host:port/dbname
+SPARKATP_SQL_URI = os.environ.get('SPARKATP_SQL_URI', '')
 
-USE_TEAM = ["ZHYY", "DLZ", "JOYHUB", "OA", "APP"]
+# ── 多环境数据库配置 ──────────────────────────────────────
+# 支持通过 JSON 环境变量配置，或默认使用空配置
+# 示例: EXECUTE_DB_CONFIG_JSON='{"team":{"env":{"host":"","port":5432,"user":"","password":"","database":""}}}'
+EXECUTE_DB_CONFIG = {}
+_execute_db_json = os.environ.get('EXECUTE_DB_CONFIG_JSON', '')
+if _execute_db_json:
+    try:
+        EXECUTE_DB_CONFIG = json.loads(_execute_db_json)
+    except (json.JSONDecodeError, TypeError):
+        pass
 
-# dev环境请求user_info
-# STRESS_URI = 'http://stress-api.qa.huohua.cn'
-# prod环境请求user_info
-# STRESS_URI = 'http://stress-api.bg.huohua.cn'
-STRESS_URI = 'https://qe.bg.huohua.cn'
-# STRESS_URI = ' http://172.19.24.100:5012/api'
-# dev环境 qe domain
-# QE_DOMAIN = 'http://qe.qa.huohua.cn'
-# prod环境 qe domain
-QE_DOMAIN = 'https://qe.bg.huohua.cn'
+USE_TEAM = os.environ.get('USE_TEAM', '').split(',') if os.environ.get('USE_TEAM') else []
 
-PASSWORD = quote('AcUVeRb8lN')
-REDIS_URL = 'redis://127.0.0.1:7379/15'
-# REDIS_URL = 'redis://39.170.26.156:7378/15'
+# ── 外部服务地址 ──────────────────────────────────────────
+STRESS_URI = os.environ.get('STRESS_URI', '')
+QE_DOMAIN = os.environ.get('QE_DOMAIN', '')
 
-JENKINS_BASE_URL = os.environ.get('JENKINS_BASE_URL', 'http://39.170.26.156:8256/')
-JENKINS_USER = os.environ.get('JENKINS_USER', 'jenkins')
-JENKINS_TOKEN = os.environ.get('JENKINS_TOKEN', 'jenkins')
+# ── 安全 ─────────────────────────────────────────────────
+PASSWORD = os.environ.get('APP_PASSWORD', '')
+
+# ── Redis ─────────────────────────────────────────────────
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')
+
+# ── Jenkins ───────────────────────────────────────────────
+JENKINS_BASE_URL = os.environ.get('JENKINS_BASE_URL', '')
+JENKINS_USER = os.environ.get('JENKINS_USER', '')
+JENKINS_TOKEN = os.environ.get('JENKINS_TOKEN', '')
 JENKINS_DEFAULT_JOB = os.environ.get('JENKINS_DEFAULT_JOB', 'pytest-auto-runner')
 PERFORMANCE_JENKINS_JOB = os.environ.get('PERFORMANCE_JENKINS_JOB', 'performance-runner')
-PERFORMANCE_JENKINS_VIEW_URL = os.environ.get('PERFORMANCE_JENKINS_VIEW_URL', 'http://39.170.26.156:8256/view/%E8%87%AA%E5%8A%A8%E5%8C%96%E6%B5%8B%E8%AF%95/')
+PERFORMANCE_JENKINS_VIEW_URL = os.environ.get('PERFORMANCE_JENKINS_VIEW_URL', '')
 PRECISE_JENKINS_JOB = os.environ.get('PRECISE_JENKINS_JOB', 'precise-test-runner')
 AUTOMATION_CALLBACK_SECRET = os.environ.get('AUTOMATION_CALLBACK_SECRET', '')
 PLATFORM_BASE_URL = os.environ.get('PLATFORM_BASE_URL', 'http://127.0.0.1:5010/it/api')
 
-AI_WORKSPACE_ROOTS = [item.strip() for item in os.environ.get('AI_WORKSPACE_ROOTS', 'D:\\zhyy,D:\\AIcoding').split(',') if item.strip()]
+# ── AI 模块配置 ───────────────────────────────────────────
+AI_WORKSPACE_ROOTS = [item.strip() for item in os.environ.get('AI_WORKSPACE_ROOTS', '').split(',') if item.strip()]
 AI_EXECUTION_LOG_DIR = os.environ.get('AI_EXECUTION_LOG_DIR', os.path.join(LOG_DIR, 'ai_execution'))
 AI_DEFAULT_TIMEOUT_SECONDS = int(os.environ.get('AI_DEFAULT_TIMEOUT_SECONDS', '300'))
 AI_MAX_OUTPUT_BYTES = int(os.environ.get('AI_MAX_OUTPUT_BYTES', '1048576'))
@@ -104,3 +79,6 @@ AI_DENY_COMMAND_KEYWORDS = [
     'format', 'shutdown', 'reboot', 'rm', 'del', 'rmdir', 'rd', 'reg', 'diskpart',
     'cipher', 'net user', 'net localgroup', 'sc delete', 'powershell -enc'
 ]
+
+# ── 飞书通知 ──────────────────────────────────────────────
+FEISHU_WEBHOOK_URL = os.environ.get('FEISHU_WEBHOOK_URL', '')

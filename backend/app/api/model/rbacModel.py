@@ -8,7 +8,7 @@ Base.to_dict = to_dict
 
 
 class Role(Base):
-    __tablename__ = 'role'
+    __tablename__ = 'sys_role'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
     code = Column(String(64), unique=True, nullable=False, comment='角色编码')
     name = Column(String(64), nullable=False, comment='角色名称')
@@ -22,7 +22,7 @@ class Role(Base):
 
 
 class Permission(Base):
-    __tablename__ = 'permission'
+    __tablename__ = 'sys_permission'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
     code = Column(String(128), unique=True, nullable=False, comment='权限编码')
     name = Column(String(128), nullable=False, comment='权限名称')
@@ -36,7 +36,7 @@ class Permission(Base):
 
 
 class RolePermission(Base):
-    __tablename__ = 'role_permission'
+    __tablename__ = 'sys_role_permission'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
     role_id = Column(BigInteger, nullable=False, comment='角色id')
     permission_id = Column(BigInteger, nullable=False, comment='权限id')
@@ -45,7 +45,7 @@ class RolePermission(Base):
 
 
 class Menu(Base):
-    __tablename__ = 'menu'
+    __tablename__ = 'sys_menu'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
     parent_id = Column(BigInteger, default=0, comment='父菜单id')
     name = Column(String(64), nullable=False, comment='菜单名称')
@@ -64,7 +64,7 @@ class Menu(Base):
 
 
 class RoleMenu(Base):
-    __tablename__ = 'role_menu'
+    __tablename__ = 'sys_role_menu'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
     role_id = Column(BigInteger, nullable=False, comment='角色id')
     menu_id = Column(BigInteger, nullable=False, comment='菜单id')

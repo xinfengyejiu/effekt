@@ -225,7 +225,7 @@ FOR EACH ROW
 EXECUTE FUNCTION update_updated_time_column();
 COMMENT ON TRIGGER trg_test_business_rule_updated_time ON test_business_rule IS '自动维护 test_business_rule.updated_time';
 
-INSERT INTO permission (code, name, module, action, description, status, is_delete)
+INSERT INTO sys_permission (code, name, module, action, description, status, is_delete)
 VALUES
     ('skill:create', '创建测试Skill', 'skill', 'create', '创建测试 Skills', 1, 0),
     ('skill:update', '更新测试Skill', 'skill', 'update', '更新测试 Skills', 1, 0),
@@ -248,7 +248,7 @@ ON CONFLICT (code) DO UPDATE SET
 
 -- Skills / Business Rules 菜单初始化
 -- 默认挂载到“测试平台(test_platform)”目录下；如果不存在则创建测试平台目录。
-INSERT INTO menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
+INSERT INTO sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
 VALUES (0, '测试平台', 'test_platform', 1, '/test-platform', 'Layout', 'test', NULL, 2, 1, 1, 0)
 ON CONFLICT (code) DO UPDATE SET
     name = EXCLUDED.name,
@@ -263,9 +263,9 @@ ON CONFLICT (code) DO UPDATE SET
     updated_time = CURRENT_TIMESTAMP;
 
 WITH parent_menu AS (
-    SELECT id FROM menu WHERE code = 'test_platform' LIMIT 1
+    SELECT id FROM sys_menu WHERE code = 'test_platform' LIMIT 1
 )
-INSERT INTO menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
+INSERT INTO sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
 SELECT id, '测试 Skills', 'skill_manage', 2, '/test-platform/skills', 'test-platform/skills/index', 'skill', 'skill:list', 20, 1, 1, 0 FROM parent_menu
 ON CONFLICT (code) DO UPDATE SET
     parent_id = EXCLUDED.parent_id,
@@ -282,9 +282,9 @@ ON CONFLICT (code) DO UPDATE SET
     updated_time = CURRENT_TIMESTAMP;
 
 WITH parent_menu AS (
-    SELECT id FROM menu WHERE code = 'test_platform' LIMIT 1
+    SELECT id FROM sys_menu WHERE code = 'test_platform' LIMIT 1
 )
-INSERT INTO menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
+INSERT INTO sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
 SELECT id, '业务规则', 'business_rule_manage', 2, '/test-platform/business-rules', 'test-platform/business-rules/index', 'rule', 'business-rule:list', 21, 1, 1, 0 FROM parent_menu
 ON CONFLICT (code) DO UPDATE SET
     parent_id = EXCLUDED.parent_id,
@@ -301,9 +301,9 @@ ON CONFLICT (code) DO UPDATE SET
     updated_time = CURRENT_TIMESTAMP;
 
 WITH parent_menu AS (
-    SELECT id FROM menu WHERE code = 'skill_manage' LIMIT 1
+    SELECT id FROM sys_menu WHERE code = 'skill_manage' LIMIT 1
 )
-INSERT INTO menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
+INSERT INTO sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
 SELECT id, '新增', 'skill:create', 3, '', '', NULL, 'skill:create', 1, 1, 1, 0 FROM parent_menu
 UNION ALL SELECT id, '编辑', 'skill:update', 3, '', '', NULL, 'skill:update', 2, 1, 1, 0 FROM parent_menu
 UNION ALL SELECT id, '删除', 'skill:delete', 3, '', '', NULL, 'skill:delete', 3, 1, 1, 0 FROM parent_menu
@@ -323,9 +323,9 @@ ON CONFLICT (code) DO UPDATE SET
     updated_time = CURRENT_TIMESTAMP;
 
 WITH parent_menu AS (
-    SELECT id FROM menu WHERE code = 'business_rule_manage' LIMIT 1
+    SELECT id FROM sys_menu WHERE code = 'business_rule_manage' LIMIT 1
 )
-INSERT INTO menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
+INSERT INTO sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete)
 SELECT id, '新增', 'business-rule:create', 3, '', '', NULL, 'business-rule:create', 1, 1, 1, 0 FROM parent_menu
 UNION ALL SELECT id, '编辑', 'business-rule:update', 3, '', '', NULL, 'business-rule:update', 2, 1, 1, 0 FROM parent_menu
 UNION ALL SELECT id, '删除', 'business-rule:delete', 3, '', '', NULL, 'business-rule:delete', 3, 1, 1, 0 FROM parent_menu

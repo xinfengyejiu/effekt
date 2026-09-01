@@ -30,7 +30,7 @@ export default {
 .json-viewer {
   margin: 0;
   padding: 16px;
-  background: #0f172a;
+  background: #1e293b;
   color: #e2e8f0;
   border-radius: 6px;
   white-space: pre-wrap;

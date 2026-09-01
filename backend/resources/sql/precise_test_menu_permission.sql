@@ -1,8 +1,8 @@
--- 精准测试菜单与权限初始化脚本
+﻿-- 精准测试菜单与权限初始化脚本
 
 BEGIN;
 
-INSERT INTO public.permission (code, name, module, action, description, status, is_delete, created_time, updated_time) VALUES
+INSERT INTO public.sys_permission (code, name, module, action, description, status, is_delete, created_time, updated_time) VALUES
 ('precise:analysis:list', '精准测试分析列表', 'precise', 'analysis:list', '查看精准测试变更分析列表', 1, 0, NOW(), NOW()),
 ('precise:analysis:create', '精准测试分析新增', 'precise', 'analysis:create', '创建精准测试变更分析任务', 1, 0, NOW(), NOW()),
 ('precise:analysis:detail', '精准测试分析详情', 'precise', 'analysis:detail', '查看精准测试变更分析详情', 1, 0, NOW(), NOW()),
@@ -28,13 +28,13 @@ INSERT INTO public.permission (code, name, module, action, description, status, 
 ('precise:gate:result', '精准测试门禁结果', 'precise', 'gate:result', '查看精准测试质量门禁结果', 1, 0, NOW(), NOW())
 ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, module=EXCLUDED.module, action=EXCLUDED.action, description=EXCLUDED.description, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 VALUES (0, '精准测试', 'precise_test', 1, '/precise', 'precise/index', 'el-icon-aim', 'precise:analysis:list', 21, 1, 1, 0, NOW(), NOW())
 ON CONFLICT (code) DO UPDATE SET parent_id=0, name=EXCLUDED.name, type=EXCLUDED.type, path=EXCLUDED.path, component=EXCLUDED.component, icon=EXCLUDED.icon, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT p.id, v.name, v.code, v.type, v.path, v.component, v.icon, v.permission_code, v.sort, v.visible, 1, 0, NOW(), NOW()
-FROM public.menu p
+FROM public.sys_menu p
 CROSS JOIN (VALUES
     ('变更分析', 'precise_analysis', 2, '/precise/analysis', 'precise/analysis', 'el-icon-document-checked', 'precise:analysis:list', 1, 1),
     ('关系图谱', 'precise_relation', 2, '/precise/relations', 'precise/relations', 'el-icon-share', 'precise:relation:list', 2, 1),
@@ -45,9 +45,9 @@ CROSS JOIN (VALUES
 WHERE p.code = 'precise_test'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, path=EXCLUDED.path, component=EXCLUDED.component, icon=EXCLUDED.icon, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=EXCLUDED.visible, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('新增分析', 'precise_analysis_create', 'precise:analysis:create', 1),
     ('查看详情', 'precise_analysis_detail', 'precise:analysis:detail', 2),
@@ -57,9 +57,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'precise_analysis'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('新增关系', 'precise_relation_create', 'precise:relation:create', 1),
     ('编辑关系', 'precise_relation_update', 'precise:relation:update', 2),
@@ -69,9 +69,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'precise_relation'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('生成推荐', 'precise_recommend_create', 'precise:recommend:create', 1),
     ('采纳推荐', 'precise_recommend_accept', 'precise:recommend:accept', 2),
@@ -82,9 +82,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'precise_recommendation'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('上传覆盖率', 'precise_coverage_upload', 'precise:coverage:upload', 1),
     ('拉取覆盖率', 'precise_coverage_pull', 'precise:coverage:pull', 2),
@@ -94,9 +94,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'precise_coverage'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('执行门禁', 'precise_gate_evaluate', 'precise:gate:evaluate', 1),
     ('查看门禁结果', 'precise_gate_result', 'precise:gate:result', 2)
@@ -104,37 +104,38 @@ CROSS JOIN (VALUES
 WHERE m.code = 'precise_gate'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.role_permission (role_id, permission_id, is_delete, created_time)
+INSERT INTO public.sys_role_permission (role_id, permission_id, is_delete, created_time)
 SELECT r.id, p.id, 0, NOW()
-FROM public.role r
-CROSS JOIN public.permission p
+FROM public.sys_role r
+CROSS JOIN public.sys_permission p
 WHERE r.status = 1
   AND r.is_delete = 0
   AND p.module = 'precise'
   AND p.is_delete = 0
   AND NOT EXISTS (
-      SELECT 1 FROM public.role_permission rp
+      SELECT 1 FROM public.sys_role_permission rp
       WHERE rp.role_id = r.id
         AND rp.permission_id = p.id
         AND rp.is_delete = 0
   );
 
-INSERT INTO public.role_menu (role_id, menu_id, is_delete, created_time)
+INSERT INTO public.sys_role_menu (role_id, menu_id, is_delete, created_time)
 SELECT r.id, m.id, 0, NOW()
-FROM public.role r
-CROSS JOIN public.menu m
+FROM public.sys_role r
+CROSS JOIN public.sys_menu m
 WHERE r.status = 1
   AND r.is_delete = 0
   AND (m.code = 'precise_test' OR m.code LIKE 'precise_%')
   AND m.is_delete = 0
   AND NOT EXISTS (
-      SELECT 1 FROM public.role_menu rm
+      SELECT 1 FROM public.sys_role_menu rm
       WHERE rm.role_id = r.id
         AND rm.menu_id = m.id
         AND rm.is_delete = 0
   );
 
-SELECT setval(pg_get_serial_sequence('public.permission', 'id'), COALESCE((SELECT MAX(id) FROM public.permission), 1));
-SELECT setval(pg_get_serial_sequence('public.menu', 'id'), COALESCE((SELECT MAX(id) FROM public.menu), 1));
+SELECT setval(pg_get_serial_sequence('public.sys_permission', 'id'), COALESCE((SELECT MAX(id) FROM public.sys_permission), 1));
+SELECT setval(pg_get_serial_sequence('public.sys_menu', 'id'), COALESCE((SELECT MAX(id) FROM public.sys_menu), 1));
 
 COMMIT;
+

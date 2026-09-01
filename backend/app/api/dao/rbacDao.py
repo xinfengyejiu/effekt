@@ -6,6 +6,19 @@ from logger import logger
 class RbacDao(object):
     @staticmethod
     def create(session, model_cls, add_info):
+        # 同步表对应序列：防止历史直插/迁移导致序列滞后于 MAX(id) 引发主键冲突
+        try:
+            table_name = getattr(model_cls, '__tablename__', None)
+            if table_name:
+                session.execute(
+                    "SELECT setval("
+                    "pg_get_serial_sequence(:tbl_seq, 'id'), "
+                    "GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0), 1), "
+                    "true)" % table_name,
+                    {'tbl_seq': 'public.%s' % table_name}
+                )
+        except Exception as _seq_err:
+            logger.warning(f'同步 {getattr(model_cls, "__tablename__", "?")} 序列失败：{_seq_err}')
         obj = model_cls(**add_info)
         session.add(obj)
         err = session.done(close=False)

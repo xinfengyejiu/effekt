@@ -42,6 +42,9 @@ class UserController(BaseCrudController):
         password = self._get(self.req_data, 'password')
         if not username or not password:
             return 0, 'username、password 为必传参数'
+        exist_user = UserService.get_by_username(self.session, username)
+        if exist_user:
+            return 0, '用户名已存在！'
         return UserService.create(self.session, User, {
             'username': username,
             'real_name': self._get(self.req_data, 'realName', 'real_name'),

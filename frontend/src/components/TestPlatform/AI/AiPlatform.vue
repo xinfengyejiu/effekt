@@ -739,12 +739,12 @@ export default {
 .ai-platform-page {
   --ai-panel-bg: #111827;
   --ai-panel-bg-soft: #172033;
-  --ai-control-bg: #0f172a;
+  --ai-control-bg: #1e293b;
   --ai-hover-bg: #1e293b;
   --ai-border: rgba(148, 163, 184, 0.22);
   --ai-text: #f8fafc;
   --ai-muted: #cbd5e1;
-  --ai-accent: #38bdf8;
+  --ai-accent: #1e40af;
   --ai-shadow: rgba(0, 0, 0, 0.18);
   padding: 0;
 }
@@ -754,7 +754,7 @@ body.theme-light .ai-platform-page {
   --ai-control-bg: #ffffff;
   --ai-hover-bg: #eaf2ff;
   --ai-border: #dbe5f3;
-  --ai-text: #0f172a;
+  --ai-text: #111827;
   --ai-muted: #64748b;
   --ai-accent: #2563eb;
   --ai-shadow: rgba(37, 99, 235, 0.08);

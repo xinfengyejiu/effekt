@@ -110,10 +110,20 @@
               <el-popover
                 v-model="moreFilterVisible"
                 placement="bottom-start"
-                width="560"
+                width="620"
                 trigger="click">
                 <div class="more-filter-wrap">
                   <el-form :inline="true" :model="queryForm" size="small" @submit.native.prevent>
+                    <el-form-item label="用例编号">
+                      <el-input
+                        v-model="queryForm.caseKeysText"
+                        type="textarea"
+                        :rows="3"
+                        clearable
+                        placeholder="支持多个编号，逗号/空格/换行分隔"
+                        style="width: 480px;">
+                      </el-input>
+                    </el-form-item>
                     <el-form-item label="模块">
                       <el-select v-model="queryForm.moduleId" clearable filterable style="width: 180px;">
                         <el-option
@@ -164,6 +174,7 @@
             <el-form-item class="case-action-buttons-item">
               <el-button type="primary" size="small" :disabled="!selectedProjectId" @click="goEditor()">新建用例</el-button>
               <el-button size="small" :disabled="!selectedProjectId" @click="openCaseImportDialog">导入Excel</el-button>
+              <el-button size="small" :disabled="!selectedProjectId" :loading="caseExporting" @click="handleCaseExport">导出Excel</el-button>
               <el-popover
                 v-model="columnSettingVisible"
                 placement="bottom-end"
@@ -200,9 +211,10 @@
                 </template>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template slot-scope="scope">
                 <el-button type="text" @click="goEditor(scope.row)">编辑</el-button>
+                <el-button type="text" @click="handleCopyCase(scope.row)">复制</el-button>
                 <el-button type="text" @click="openAutoGenDialog(scope.row)">生成自动化用例</el-button>
                 <el-button type="text" style="color: #F56C6C;" @click="remove(scope.row)">删除</el-button>
               </template>
@@ -232,8 +244,9 @@
               :key="mindmapRenderKey"
               :data="caseMindmapTreeData"
               node-key="id"
-              :default-expand-all="!mindmapCollapsed"
+              :default-expanded-keys="mindmapDefaultExpandedKeys"
               :expand-on-click-node="false"
+              @node-expand="handleMindmapNodeExpand"
               :props="{ children: 'children', label: 'name' }"
               class="xmind-tree">
               <div slot-scope="{ data }" class="mindmap-node-wrap">
@@ -347,13 +360,61 @@
                 <el-button
                   type="success"
                   size="small"
-                  :disabled="!selectedProjectId"
+                  :disabled="!selectedProjectId || aiGenerateLoading"
                   :loading="aiGenerateLoading"
                   @click="handleAiGenerateCases">
                   生成用例
                 </el-button>
+                <el-button
+                  v-if="aiGenerateLoading"
+                  type="danger"
+                  size="small"
+                  plain
+                  :loading="aiCancelLoading"
+                  :disabled="aiCancelLoading"
+                  @click="handleAiCancelGenerate">
+                  停止生成
+                </el-button>
               </el-form-item>
             </el-form>
+
+            <!-- AI生成用例进度条 -->
+            <div v-if="aiGenProgress.visible" class="ai-gen-progress-bar">
+              <div class="ai-gen-progress-head">
+                <div class="ai-gen-progress-title">
+                  <i class="el-icon-loading"></i>
+                  <span>AI 正在生成测试用例</span>
+                </div>
+                <span v-if="aiGenProgress.totalChunks > 0" class="ai-gen-progress-count">
+                  第 {{ aiGenProgress.chunkIndex }} / {{ aiGenProgress.totalChunks }} 段
+                </span>
+              </div>
+              <div class="ai-gen-current-module">
+                当前生成模块：{{ aiGenProgress.chunkTitle || '正在准备生成任务...' }}
+              </div>
+              <el-progress
+                v-if="aiGenProgress.totalChunks > 0"
+                :percentage="Math.round((Math.max(aiGenProgress.chunkIndex - 1, 0) / aiGenProgress.totalChunks) * 100)"
+                :status="aiGenProgress.chunkIndex >= aiGenProgress.totalChunks ? 'success' : ''"
+                style="margin-bottom: 8px;">
+              </el-progress>
+              <div v-if="aiGenProgress.casesCount > 0 || aiGenProgress.totalCasesSoFar > 0 || aiGenProgress.totalSkipped > 0" style="color: #67c23a; font-size: 13px;">
+                当前测试点生成 {{ aiGenProgress.casesCount || 0 }} 条；累计生成 {{ aiGenProgress.totalCasesSoFar }} 条，已跳过重复 {{ aiGenProgress.totalSkipped || 0 }} 条
+              </div>
+              <div v-if="aiGenProgress.logs.length > 0" class="ai-gen-log-list">
+                <div
+                  v-for="(log, index) in aiGenProgress.logs"
+                  :key="index"
+                  :class="['ai-gen-log-item', 'is-' + (log.level || 'info')]">
+                  <span class="ai-gen-log-time">{{ log.time }}</span>
+                  <span class="ai-gen-log-agent" v-if="log.agentName">{{ log.agentName }}</span>
+                  <span class="ai-gen-log-message">{{ log.message }}</span>
+                </div>
+              </div>
+              <div v-if="aiGenProgress.errors.length > 0" style="color: #e6a23c; font-size: 12px; margin-top: 4px;">
+                ⚠ {{ aiGenProgress.errors.length }} 个分段生成失败，其余分段继续中...
+              </div>
+            </div>
 
             <div class="ai-gen-params-bar">
               <span class="ai-gen-params-label">生成参数</span>
@@ -676,6 +737,39 @@
         <div class="case-import-icon">X</div>
         <div class="case-import-title">上传用例</div>
         <div class="case-import-subtitle">仅支持 xlsx、xls 文件，系统将自动解析用例数据</div>
+        <el-form class="case-import-form" :model="importForm" label-width="72px" size="small">
+          <el-form-item label="产品">
+            <el-select
+              v-model="importForm.productId"
+              filterable
+              clearable
+              placeholder="请选择产品"
+              style="width: 100%;"
+              @focus="loadProductOptions"
+              @change="handleImportProductChange">
+              <el-option
+                v-for="item in productOptions"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="项目">
+            <el-select
+              v-model="importForm.projectId"
+              filterable
+              clearable
+              placeholder="请选择项目"
+              style="width: 100%;"
+              :disabled="!importForm.productId">
+              <el-option
+                v-for="item in importProjectOptions"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id" />
+            </el-select>
+          </el-form-item>
+        </el-form>
         <div
           class="case-import-dropzone"
           @dragover.prevent
@@ -694,7 +788,7 @@
         </div>
         <div class="case-import-actions">
           <el-button type="text" @click="downloadImportTemplate">下载标准模板</el-button>
-          <el-button type="primary" :disabled="!importFile || !selectedProjectId" :loading="importSubmitting" @click="submitCaseImport">开始上传并解析</el-button>
+          <el-button type="primary" :disabled="!importFile || !importForm.productId || !importForm.projectId" :loading="importSubmitting" @click="submitCaseImport">开始上传并解析</el-button>
         </div>
       </div>
     </el-dialog>
@@ -702,13 +796,16 @@
 </template>
 
 <script>
+import echarts from 'echarts'
 import PageSection from '@/components/TestPlatform/common/PageSection'
 import DocumentSourcePanel from '@/components/TestPlatform/Case/DocumentSourcePanel'
 import {
+  copyCase,
   createModule,
   deleteCase,
   deleteModule,
   downloadCaseImportTemplate,
+  exportCaseExcel,
   generateCaseAutomation,
   getCaseDetail,
   getCaseList,
@@ -718,7 +815,7 @@ import {
   updateCase,
   updateModule
 } from '@/api/caseApi'
-import { deleteDocument, getDocumentList, generateDocumentCases } from '@/api/documentApi'
+import { deleteDocument, getDocumentList, generateDocumentCases, generateDocumentCasesStreaming, cancelDocumentCaseGeneration, getDocumentCaseGenerationStatus } from '@/api/documentApi'
 import { getSkillList, getBusinessRuleList } from '@/api/skillRuleApi'
 import { getProductList } from '@/api/productApi'
 import { getProjectDetail, getProjectList } from '@/api/projectApi'
@@ -751,7 +848,7 @@ export default {
       editingModuleId: '',
       caseMindmapLoading: false,
       caseMindmapTreeData: [],
-      mindmapCollapsed: false,
+      mindmapCollapsed: true,
       mindmapRenderKey: 0,
       selectedMindmapCase: null,
       mindmapCaseEditing: false,
@@ -778,14 +875,24 @@ export default {
       columnSettingVisible: false,
       caseImportDialogVisible: false,
       importSubmitting: false,
+      caseExporting: false,
+      caseExportProgressVisible: false,
+      caseExportProgress: 0,
+      caseExportProgressText: '正在请求导出数据，请稍候...',
       createdTimeRange: [],
       importFile: null,
+      importForm: {
+        productId: '',
+        projectId: ''
+      },
+      importProjectOptions: [],
       queryForm: {
         keyword: '',
         priority: '',
         creator: '',
         createdStartTime: '',
         createdEndTime: '',
+        caseKeysText: '',
         moduleId: '',
         caseType: '',
         status: '',
@@ -850,6 +957,21 @@ export default {
       aiGenSelectedSkillIds: [],
       aiGenSelectedRuleIds: [],
       aiGenerateLoading: false,
+      aiCancelLoading: false,
+      aiGenerationId: '',
+      aiGenerateStream: null,
+      aiGenerationStatusTimer: null,
+      aiGenProgress: {
+        visible: false,
+        chunkIndex: 0,
+        totalChunks: 0,
+        chunkTitle: '',
+        casesCount: 0,
+        totalCasesSoFar: 0,
+        totalSkipped: 0,
+        errors: [],
+        logs: []
+      },
       aiSelectedCases: [],
       aiBatchDeleting: false,
       aiBatchSyncing: false,
@@ -917,7 +1039,13 @@ export default {
       const r = this.autoGenRow
       if (!r) return '—'
       return r.title || r.case_key || r.caseKey || (r.id != null ? `用例 #${r.id}` : '—')
-    }
+    },
+    mindmapDefaultExpandedKeys() {
+      // 合并展示模式下全部收起，正常模式下只展开根节点（项目节点）
+      if (this.mindmapCollapsed) return []
+      const treeData = this.caseMindmapTreeData || []
+      return treeData.map(item => item.id)
+    },
   },
   watch: {
     activeTab(val) {
@@ -928,6 +1056,7 @@ export default {
         this.fetchAiCaseList()
         this.fetchAiDocList()
         this.fetchAiSkillRuleOptions()
+        this.checkAiGenerationStatus()
       }
     }
   },
@@ -953,6 +1082,18 @@ export default {
         this.projectOptions = data.items || data.list || data.data || []
       }).catch(() => {
         this.projectOptions = []
+      })
+    },
+    loadImportProjectOptions(productId) {
+      if (!productId) {
+        this.importProjectOptions = []
+        return Promise.resolve()
+      }
+      return getProjectList({ pageNo: 1, pageSize: 1000, status: 1, productId }).then(res => {
+        const data = res && res.data ? res.data : res || {}
+        this.importProjectOptions = data.items || data.list || data.data || []
+      }).catch(() => {
+        this.importProjectOptions = []
       })
     },
     loadModuleProjectOptionsByProduct(productId) {
@@ -1102,6 +1243,15 @@ export default {
         return
       }
       if (node.nodeTypeLabel === '模块') {
+        const tree = this.$refs.mindmapTreeRef
+        if (tree && tree.store) {
+          const storeNode = tree.store.nodesMap && tree.store.nodesMap[node.id]
+          const currentlyExpanded = storeNode ? storeNode.expanded : false
+          if (currentlyExpanded) {
+            storeNode.expanded = false
+            return
+          }
+        }
         this.expandMindmapModuleCases(node)
         return
       }
@@ -1110,12 +1260,60 @@ export default {
         this.mindmapCaseEditing = false
       }
     },
+    // el-tree 展开事件：展开一个模块时，保留当前路径，只收起其他分支
+    handleMindmapNodeExpand(expandedData, expandedNode) {
+      if (!expandedData || expandedData.nodeTypeLabel !== '模块') return
+      this.collapseMindmapOtherBranches(expandedNode)
+    },
+    expandMindmapStoreNode(nodeId) {
+      const tree = this.$refs.mindmapTreeRef
+      if (!tree || !tree.store) return
+      const storeNode = tree.store.nodesMap && tree.store.nodesMap[nodeId]
+      if (!storeNode) return
+      storeNode.expanded = true
+      this.collapseMindmapOtherBranches(storeNode)
+    },
+    collapseMindmapOtherBranches(currentNode) {
+      const tree = this.$refs.mindmapTreeRef
+      if (!tree || !tree.root || !currentNode) return
+      const keepIds = new Set()
+      let node = currentNode
+      while (node && node.data) {
+        keepIds.add(node.data.id)
+        node = node.parent
+      }
+      const walk = (children) => {
+        if (!children) return
+        children.forEach(child => {
+          if (child.data && child.data.nodeTypeLabel === '模块' && !keepIds.has(child.data.id)) {
+            child.expanded = false
+          }
+          if (child.childNodes && child.childNodes.length > 0) {
+            walk(child.childNodes)
+          }
+        })
+      }
+      this.$nextTick(() => {
+        walk(tree.root.childNodes)
+      })
+    },
     expandMindmapModuleCases(moduleNode) {
       if (!moduleNode || !moduleNode.rawId) {
         return
       }
       const moduleId = moduleNode.rawId
       if (moduleNode._childrenChecked && moduleNode._casesLoaded) {
+        // 已加载子节点，直接切换展开/收起
+        const tree = this.$refs.mindmapTreeRef
+        if (tree && tree.store) {
+          const storeNode = tree.store.nodesMap && tree.store.nodesMap[moduleNode.id]
+          if (storeNode) {
+            storeNode.expanded = !storeNode.expanded
+            if (storeNode.expanded) {
+              this.collapseMindmapOtherBranches(storeNode)
+            }
+          }
+        }
         return
       }
       if (moduleNode._childrenLoading || moduleNode._casesLoading) {
@@ -1134,8 +1332,13 @@ export default {
         moduleNode._childrenChecked = true
         if (childList.length > 0) {
           const childNodes = childList.map(item => this.buildMindmapModuleNode(item))
-          moduleNode.children = (moduleNode.children || []).concat(childNodes)
-          this.mindmapRenderKey += 1
+          moduleNode.children = childNodes
+          // 使用 updateKeyChildren 增量更新，避免整树重渲染丢失手风琴状态
+          const tree = this.$refs.mindmapTreeRef
+          if (tree && tree.store) {
+            tree.updateKeyChildren(moduleNode.id, childNodes)
+            this.expandMindmapStoreNode(moduleNode.id)
+          }
           return
         }
         moduleNode._casesLoading = true
@@ -1152,9 +1355,13 @@ export default {
           const caseData = (caseRes && caseRes.data) || caseRes || {}
           const list = caseData.list || caseData.items || []
           const caseNodes = (Array.isArray(list) ? list : []).map(item => this.buildMindmapCaseNode(item))
-          moduleNode.children = (moduleNode.children || []).concat(caseNodes)
+          const tree = this.$refs.mindmapTreeRef
+          if (tree) {
+            tree.updateKeyChildren(moduleNode.id, caseNodes)
+            this.expandMindmapStoreNode(moduleNode.id)
+          }
+          moduleNode.children = caseNodes
           moduleNode._casesLoaded = true
-          this.mindmapRenderKey += 1
         }).finally(() => {
           moduleNode._casesLoading = false
         })
@@ -1401,6 +1608,11 @@ export default {
         created_by_name: this.queryForm.creator
       })
       delete query.creator
+      const caseKeys = this.normalizeCaseKeys(query.caseKeysText)
+      delete query.caseKeysText
+      if (caseKeys.length) {
+        query.caseKeys = caseKeys.join(',')
+      }
       const params = this.cleanParams(Object.assign({}, query, {
         pageNo: this.pageNo,
         pageSize: this.pageSize
@@ -1704,9 +1916,127 @@ export default {
       const parts = norm.split('/')
       return parts[parts.length - 1] || s
     },
+    resetAiGenerateState() {
+      this.aiGenerateLoading = false
+      this.aiCancelLoading = false
+      this.aiGenerationId = ''
+      this.aiGenerateStream = null
+      this.stopAiGenerationStatusPolling()
+    },
+    stopAiGenerationStatusPolling() {
+      if (this.aiGenerationStatusTimer) {
+        clearInterval(this.aiGenerationStatusTimer)
+        this.aiGenerationStatusTimer = null
+      }
+    },
+    startAiGenerationStatusPolling() {
+      if (this.aiGenerationStatusTimer) return
+      this.aiGenerationStatusTimer = setInterval(() => {
+        this.checkAiGenerationStatus()
+      }, 5000)
+    },
+    formatAiGenLogTime(value) {
+      if (!value) return new Date().toLocaleTimeString()
+      const ts = Number(value)
+      if (Number.isFinite(ts)) {
+        return new Date(ts * 1000).toLocaleTimeString()
+      }
+      return String(value)
+    },
+    applyAiGenerationStatus(status = {}) {
+      if (!status) return
+      const running = status.status === 'running' || status.status === 'stopping'
+      this.aiGenerateLoading = running
+      this.aiCancelLoading = status.status === 'stopping'
+      this.aiGenerationId = status.generationId || this.aiGenerationId
+      this.aiGenProgress.visible = running || this.aiGenProgress.visible
+      this.aiGenProgress.chunkIndex = status.chunkIndex || 0
+      this.aiGenProgress.totalChunks = status.totalChunks || 0
+      this.aiGenProgress.chunkTitle = status.chunkTitle || (running ? '后台仍在生成测试用例' : '')
+      this.aiGenProgress.casesCount = status.casesCount || this.aiGenProgress.casesCount || 0
+      this.aiGenProgress.totalCasesSoFar = status.totalCasesSoFar || 0
+      this.aiGenProgress.totalSkipped = status.totalSkipped || 0
+      this.aiGenProgress.errors = status.errors || []
+      this.aiGenProgress.logs = (status.logs || []).map(item => ({
+        time: this.formatAiGenLogTime(item.time),
+        level: item.level || 'info',
+        agentName: item.agentName || '',
+        message: item.message || 'agent 状态更新'
+      }))
+      if (running) {
+        this.startAiGenerationStatusPolling()
+      } else {
+        this.stopAiGenerationStatusPolling()
+        this.fetchAiCaseList()
+        this.fetchList()
+        this.fetchCaseMindmapData()
+        this.fetchAiDocList()
+      }
+    },
+    checkAiGenerationStatus() {
+      if (!this.projectId && !this.aiGenerationId) return Promise.resolve()
+      const params = {}
+      if (this.aiGenerationId) params.generationId = this.aiGenerationId
+      if (this.projectId) params.projectId = this.projectId
+      return getDocumentCaseGenerationStatus(params).then(res => {
+        const data = (res && res.data) || res || {}
+        if (data.status === 'running' || data.status === 'stopping') {
+          this.applyAiGenerationStatus(data)
+        } else if (this.aiGenerateLoading && (data.status === 'done' || data.status === 'cancelled' || data.status === 'error' || data.status === 'idle')) {
+          if (data.status !== 'idle') {
+            this.applyAiGenerationStatus(data)
+          }
+          this.resetAiGenerateState()
+          setTimeout(() => {
+            this.aiGenProgress.visible = false
+          }, 3000)
+        }
+      }).catch(() => {})
+    },
+    pushAiGenLog(data = {}) {
+      const logs = this.aiGenProgress.logs || []
+      const message = data.message || data.chunkTitle || 'agent 状态更新'
+      logs.push({
+        time: new Date().toLocaleTimeString(),
+        level: data.level || 'info',
+        agentName: data.agentName || '',
+        message
+      })
+      this.aiGenProgress.logs = logs.slice(-12)
+    },
+    createAiGenerationId() {
+      if (window.crypto && window.crypto.randomUUID) {
+        return window.crypto.randomUUID()
+      }
+      return `gen-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    },
+    handleAiCancelGenerate() {
+      if (!this.aiGenerationId) {
+        this.$message.warning('暂未获取到生成任务ID，请稍后再试')
+        return
+      }
+      if (this.aiCancelLoading) {
+        return
+      }
+      const generationId = this.aiGenerationId
+      this.aiCancelLoading = true
+      this.aiGenerateLoading = true
+      this.aiGenProgress.visible = true
+      this.pushAiGenLog({ level: 'warning', message: '已请求停止生成，等待后台任务实际结束' })
+      this.startAiGenerationStatusPolling()
+      cancelDocumentCaseGeneration({ generationId })
+        .catch(err => {
+          const msg = err && err.message ? err.message : '停止生成请求发送失败'
+          this.$message.warning(msg)
+        })
+    },
     handleAiGenerateCases() {
       if (!this.projectId) {
         this.$message.warning('请先选择项目')
+        return
+      }
+      if (this.aiGenerateLoading) {
+        this.$message.warning('当前已有AI生成任务正在执行，请等待结束或先停止生成')
         return
       }
       if (!this.aiSelectedDocIds.length) {
@@ -1723,27 +2053,156 @@ export default {
           .filter(id => Number.isFinite(id) && id > 0)
       const skillIds = normalizePositiveIds(this.aiGenSelectedSkillIds)
       const ruleIds = normalizePositiveIds(this.aiGenSelectedRuleIds)
+      this.$confirm('请选择本次AI生成方式。接着执行会跳过已完成的需求点，只从未完成或失败的需求点继续；重新开始会清空本次文档和参数下的断点记录后从头生成。', 'AI生成方式', {
+        confirmButtonText: '接着执行',
+        cancelButtonText: '重新开始',
+        distinguishCancelAndClose: true,
+        type: 'warning'
+      }).then(() => {
+        this.startAiGenerateCases('resume', tags, skillIds, ruleIds)
+      }).catch(action => {
+        if (action === 'cancel') {
+          this.startAiGenerateCases('restart', tags, skillIds, ruleIds)
+        }
+      })
+    },
+    startAiGenerateCases(resumeMode, tags, skillIds, ruleIds) {
+      const generationId = this.createAiGenerationId()
       const payload = {
         documentIds: this.aiSelectedDocIds.slice(),
         projectId: Number(this.projectId),
+        generationId,
+        resumeMode,
         priority: this.aiGenForm.priority,
         caseType: this.aiGenForm.caseType,
         tags
       }
       if (skillIds.length) payload.skillIds = skillIds
       if (ruleIds.length) payload.ruleIds = ruleIds
+
+      // 使用SSE流式生成，实时显示进度
       this.aiGenerateLoading = true
-      generateDocumentCases(payload)
-        .then(() => {
-          this.$message.success('生成任务已提交')
-          this.fetchAiCaseList()
-          this.fetchList()
-          this.fetchCaseMindmapData()
-          this.fetchAiDocList()
-        })
-        .finally(() => {
-          this.aiGenerateLoading = false
-        })
+      this.aiCancelLoading = false
+      this.aiGenerationId = generationId
+      this.aiGenerateStream = null
+      this.aiGenProgress.visible = true
+      this.aiGenProgress.chunkIndex = 0
+      this.aiGenProgress.totalChunks = 0
+      this.aiGenProgress.chunkTitle = ''
+      this.aiGenProgress.casesCount = 0
+      this.aiGenProgress.totalCasesSoFar = 0
+      this.aiGenProgress.totalSkipped = 0
+      this.aiGenProgress.errors = []
+      this.aiGenProgress.logs = []
+      this.startAiGenerationStatusPolling()
+
+      this.aiGenerateStream = generateDocumentCasesStreaming(
+        payload,
+        // onEvent: 收到SSE事件
+        (parsed) => {
+          const event = parsed.event
+          const data = parsed.data || {}
+          if (event === 'start') {
+            this.aiGenerationId = data.generationId || this.aiGenerationId
+          } else if (event === 'agent_plan') {
+            this.aiGenProgress.totalChunks = data.totalChunks || 0
+            this.aiGenProgress.chunkTitle = data.message || '已拆分测试点任务，正在并发生成'
+            if (data.resumeSkippedCount) {
+              this.pushAiGenLog({
+                level: 'info',
+                message: `断点续跑：已跳过${data.resumeSkippedCount}个已完成生成点，继续执行剩余${data.totalChunks || 0}个生成点`
+              })
+            }
+          } else if (event === 'agent_start') {
+            this.aiGenProgress.chunkIndex = data.chunkIndex || this.aiGenProgress.chunkIndex
+            this.aiGenProgress.totalChunks = data.totalChunks || this.aiGenProgress.totalChunks
+            this.aiGenProgress.chunkTitle = data.chunkTitle || data.agentName || ''
+            this.aiGenProgress.casesCount = 0
+          } else if (event === 'agent_log') {
+            this.pushAiGenLog(data)
+          } else if (event === 'ai_retry') {
+            this.pushAiGenLog(Object.assign({}, data, { level: 'warning' }))
+          } else if (event === 'heartbeat') {
+            this.aiGenProgress.chunkIndex = data.chunkIndex || this.aiGenProgress.chunkIndex
+            this.aiGenProgress.totalChunks = data.totalChunks || this.aiGenProgress.totalChunks
+            this.aiGenProgress.chunkTitle = data.chunkTitle || this.aiGenProgress.chunkTitle
+            this.pushAiGenLog(data)
+          } else if (event === 'chunk_start') {
+            this.aiGenProgress.chunkIndex = data.chunkIndex || 0
+            this.aiGenProgress.totalChunks = data.totalChunks || 0
+            this.aiGenProgress.chunkTitle = data.chunkTitle || ''
+            this.aiGenProgress.casesCount = 0
+            this.aiGenProgress.totalCasesSoFar = data.totalCasesSoFar || this.aiGenProgress.totalCasesSoFar
+          } else if (event === 'progress') {
+            this.aiGenProgress.chunkIndex = data.chunkIndex || 0
+            this.aiGenProgress.totalChunks = data.totalChunks || 0
+            this.aiGenProgress.chunkTitle = data.chunkTitle || ''
+            this.aiGenProgress.casesCount = data.casesCount || 0
+            this.aiGenProgress.totalCasesSoFar = data.totalCasesSoFar || 0
+            this.aiGenProgress.totalSkipped = data.totalSkipped || this.aiGenProgress.totalSkipped || 0
+          } else if (event === 'chunk_error') {
+            this.aiGenProgress.errors.push({
+              chunkIndex: data.chunkIndex,
+              error: data.error
+            })
+          } else if (event === 'cancelled') {
+            const importedCount = data.importedCount || 0
+            const skippedCount = data.skippedCount || 0
+            this.$message.info(importedCount > 0 || skippedCount > 0 ? `已停止生成，已导入${importedCount}条，跳过重复${skippedCount}条` : '已停止生成')
+            this.fetchAiCaseList()
+            this.fetchList()
+            this.fetchCaseMindmapData()
+            this.fetchAiDocList()
+          } else if (event === 'done') {
+            const totalCases = data.totalCases || 0
+            const importedCount = data.importedCount || data.totalImported || 0
+            const skippedCount = data.skippedCount || data.totalSkipped || 0
+            this.aiGenProgress.totalSkipped = skippedCount
+            if (totalCases > 0 || importedCount > 0 || skippedCount > 0) {
+              this.$message.success(`生成完成，共返回${totalCases}条，已导入${importedCount}条，跳过重复${skippedCount}条`)
+              this.fetchAiCaseList()
+              this.fetchList()
+              this.fetchCaseMindmapData()
+              this.fetchAiDocList()
+            } else if (data.resumeSkippedCount) {
+              this.$message.success(data.message || `所有生成点已完成，已跳过${data.resumeSkippedCount}个生成点`)
+            } else {
+              this.$message.warning('AI未生成任何测试用例，请检查文档内容')
+            }
+            if (data.hasError || (data.failedChunks && data.failedChunks.length)) {
+              const errMsgs = (data.failedChunks || []).map(f => f.error || '未知错误').join('; ')
+              if (errMsgs) {
+                this.$message.warning(`部分分段生成失败: ${errMsgs}`)
+              }
+            }
+          } else if (event === 'error') {
+            this.$message.error(data.message || '生成失败')
+            this.resetAiGenerateState()
+            setTimeout(() => {
+              this.aiGenProgress.visible = false
+            }, 3000)
+          } else if (event === 'import_error') {
+            this.$message.error(`导入失败: ${data.error}`)
+          }
+        },
+        // onError: 网络错误
+        (err) => {
+          this.$message.error(`生成连接中断: ${err.message || '网络错误'}，正在查询后台生成状态`)
+          this.aiGenerateStream = null
+          this.checkAiGenerationStatus()
+          this.startAiGenerationStatusPolling()
+        },
+        // onDone: 流结束
+        () => {
+          this.checkAiGenerationStatus().then(() => {
+            if (!this.aiGenerateLoading) {
+              setTimeout(() => {
+                this.aiGenProgress.visible = false
+              }, 3000)
+            }
+          })
+        }
+      )
     },
     handleAiCaseSizeChange(size) {
       this.aiCasePageSize = size
@@ -1783,6 +2242,7 @@ export default {
         creator: '',
         createdStartTime: '',
         createdEndTime: '',
+        caseKeysText: '',
         moduleId: '',
         caseType: '',
         status: '',
@@ -1826,7 +2286,24 @@ export default {
       return value
     },
     openCaseImportDialog() {
+      this.importForm.productId = this.selectedProductId || ''
+      this.importForm.projectId = this.selectedProjectId || this.projectId || ''
+      this.loadProductOptions()
+      if (this.importForm.productId) {
+        this.loadImportProjectOptions(this.importForm.productId).then(() => {
+          const hasProject = (this.importProjectOptions || []).some(item => String(item.id) === String(this.importForm.projectId))
+          if (this.importForm.projectId && !hasProject) {
+            this.importForm.projectId = ''
+          }
+        })
+      } else {
+        this.importProjectOptions = []
+      }
       this.caseImportDialogVisible = true
+    },
+    handleImportProductChange(productId) {
+      this.importForm.projectId = ''
+      this.loadImportProjectOptions(productId)
     },
     openAiDocumentCreateDialog() {
       if (!this.selectedProductId || !this.selectedProjectId) {
@@ -1842,6 +2319,11 @@ export default {
     },
     resetImportDialog() {
       this.importFile = null
+      this.importForm = {
+        productId: '',
+        projectId: ''
+      }
+      this.importProjectOptions = []
       if (this.$refs.importFileInput) {
         this.$refs.importFileInput.value = ''
       }
@@ -1877,11 +2359,12 @@ export default {
       this.importFile = file
     },
     downloadImportTemplate() {
-      if (!this.selectedProjectId) {
+      const projectId = this.importForm.projectId || this.selectedProjectId
+      if (!projectId) {
         this.$message.warning('请先选择项目')
         return
       }
-      downloadCaseImportTemplate(this.selectedProjectId).then(res => {
+      downloadCaseImportTemplate(projectId).then(res => {
         const blob = new Blob([res], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
         const url = window.URL.createObjectURL(blob)
         const link = document.createElement('a')
@@ -1891,8 +2374,86 @@ export default {
         window.URL.revokeObjectURL(url)
       })
     },
+    ensureExportBlob(res) {
+      const blob = res instanceof Blob ? res : new Blob([res], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const type = String(blob.type || '').toLowerCase()
+      if (type.indexOf('application/json') === -1) {
+        return Promise.resolve(blob)
+      }
+      return blob.text().then(text => {
+        try {
+          const data = JSON.parse(text)
+          throw new Error(data.message || data.msg || '用例导出失败')
+        } catch (err) {
+          if (err && err.message && err.message !== 'Unexpected end of JSON input') {
+            throw err
+          }
+          throw new Error('用例导出失败')
+        }
+      })
+    },
+    formatFileSize(size) {
+      const value = Number(size) || 0
+      if (value >= 1024 * 1024) {
+        return `${(value / 1024 / 1024).toFixed(2)} MB`
+      }
+      if (value >= 1024) {
+        return `${(value / 1024).toFixed(1)} KB`
+      }
+      return `${value} B`
+    },
+    handleCaseExport() {
+      const productId = this.selectedProductId
+      const projectId = this.selectedProjectId || this.projectId
+      if (!projectId) {
+        this.$message.warning('请先选择项目')
+        return
+      }
+      this.caseExporting = true
+      this.caseExportProgressVisible = true
+      this.caseExportProgress = 5
+      this.caseExportProgressText = '正在请求导出数据，请稍候...'
+      exportCaseExcel(productId, projectId, event => {
+        const loaded = event && event.loaded ? event.loaded : 0
+        const total = event && event.total ? event.total : 0
+        if (total > 0) {
+          this.caseExportProgress = Math.min(95, Math.round((loaded / total) * 100))
+          this.caseExportProgressText = `正在下载文件：${this.formatFileSize(loaded)} / ${this.formatFileSize(total)}`
+        } else {
+          this.caseExportProgress = Math.min(90, this.caseExportProgress + 10)
+          this.caseExportProgressText = `正在生成文件，已接收 ${this.formatFileSize(loaded)}`
+        }
+      }).then(res => this.ensureExportBlob(res)).then(blob => {
+        this.caseExportProgress = 100
+        this.caseExportProgressText = '文件已生成，正在触发浏览器下载...'
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        const project = (this.projectOptions || []).find(item => Number(item.id) === Number(projectId))
+        link.href = url
+        link.download = `${(project && project.name) || '测试用例'}-全量用例.xlsx`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+        this.$message.success('用例导出成功')
+        setTimeout(() => {
+          this.caseExportProgressVisible = false
+        }, 800)
+      }).catch(err => {
+        this.caseExportProgressText = (err && err.message) || '用例导出失败'
+        this.$message.error(this.caseExportProgressText)
+      }).finally(() => {
+        this.caseExporting = false
+      })
+    },
     submitCaseImport() {
-      if (!this.selectedProjectId) {
+      const productId = this.importForm.productId
+      const projectId = this.importForm.projectId
+      if (!productId) {
+        this.$message.warning('请先选择产品')
+        return
+      }
+      if (!projectId) {
         this.$message.warning('请先选择项目')
         return
       }
@@ -1901,9 +2462,15 @@ export default {
         return
       }
       this.importSubmitting = true
-      importCaseExcel(this.selectedProjectId, this.importFile).then(() => {
+      importCaseExcel(productId, projectId, this.importFile).then(() => {
         this.$message.success('导入并解析成功')
         this.caseImportDialogVisible = false
+        this.selectedProductId = productId
+        this.selectedProjectId = projectId
+        this.projectId = projectId
+        this.moduleQueryForm.projectId = projectId
+        saveLastProductProjectCache(productId, projectId)
+        this.loadProjectOptionsByProduct(productId)
         this.fetchList()
         this.fetchAiCaseList()
         this.fetchCaseMindmapData()
@@ -2073,6 +2640,16 @@ export default {
     goReview(row) {
       this.$router.push({ path: '/test-platform/case/review', query: { projectId: this.projectId, caseId: row.id } })
     },
+    handleCopyCase(row) {
+      copyCase(this.projectId, row.id).then(() => {
+        this.$message({ type: 'success', message: '复制成功' })
+        if (this.activeTab === 'ai-case-import') {
+          this.fetchAiCaseList()
+        } else {
+          this.fetchList()
+        }
+      })
+    },
     remove(row) {
       this.$confirm('确认删除该用例吗？', '提示', { type: 'warning' }).then(() => {
         deleteCase(this.projectId, row.id).then(() => {
@@ -2087,11 +2664,24 @@ export default {
     },
     cleanParams(params) {
       return Object.keys(params).reduce((result, key) => {
+        if (Array.isArray(params[key])) {
+          if (params[key].length > 0) result[key] = params[key]
+          return result
+        }
         if (params[key] !== '' && params[key] !== undefined && params[key] !== null) {
           result[key] = params[key]
         }
         return result
       }, {})
+    },
+    normalizeCaseKeys(value) {
+      if (Array.isArray(value)) {
+        return value.map(item => String(item || '').trim()).filter(Boolean)
+      }
+      return String(value || '')
+        .split(/[\s,，;；]+/)
+        .map(item => item.trim())
+        .filter(Boolean)
     },
     formatPriority(value) {
       const map = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3' }
@@ -2142,8 +2732,14 @@ export default {
           this.fetchAiDocList()
           this.fetchAiSkillRuleOptions()
         }
+        this.checkAiGenerationStatus()
       }
     })
+  },
+  mounted() {
+  },
+  beforeDestroy() {
+    this.stopAiGenerationStatusPolling()
   }
 }
 </script>
@@ -2192,6 +2788,24 @@ export default {
   margin-bottom: 8px;
 }
 
+.case-export-progress-panel {
+  padding: 8px 4px 4px;
+}
+
+.case-export-progress-title {
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.case-export-progress-desc {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 20px;
+  margin-bottom: 14px;
+}
+
 .case-import-panel {
   border: 1px solid #ebeef5;
   border-radius: 4px;
@@ -2207,7 +2821,7 @@ export default {
   height: 32px;
   border-radius: 6px;
   color: #fff;
-  background: #409eff;
+  background: #1e40af;
   font-weight: 600;
   margin-bottom: 8px;
 }
@@ -2223,13 +2837,27 @@ export default {
   margin-bottom: 16px;
 }
 
+.case-import-form {
+  max-width: 520px;
+  margin: 0 auto 16px;
+  text-align: left;
+}
+
+.case-import-form /deep/ .el-form-item {
+  margin-bottom: 12px;
+}
+
+.case-import-form /deep/ .el-form-item__label {
+  color: #cbd5e1;
+}
+
 .case-import-dropzone {
   border: 1px dashed rgba(56, 189, 248, 0.36);
   border-radius: 4px;
   padding: 28px 20px;
   margin: 0 auto;
   max-width: 520px;
-  background: #0f172a;
+  background: #1e293b;
 }
 
 .case-import-drop-text {
@@ -2238,7 +2866,7 @@ export default {
 }
 
 .link-text {
-  color: #409eff;
+  color: #1e40af;
   cursor: pointer;
 }
 
@@ -2294,6 +2922,97 @@ export default {
 
 .ai-case-query-form {
   margin-bottom: 8px;
+}
+
+.ai-gen-progress-bar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  margin: 8px 0 12px;
+  padding: 12px 16px;
+  background: #10202c;
+  border: 1px solid rgba(52, 211, 153, 0.36);
+  border-radius: 4px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.ai-gen-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ai-gen-progress-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #dcfce7;
+  font-weight: 600;
+}
+
+.ai-gen-progress-title .el-icon-loading {
+  color: #34d399;
+  font-size: 16px;
+}
+
+.ai-gen-progress-count {
+  flex: none;
+  color: #a7f3d0;
+  font-size: 13px;
+}
+
+.ai-gen-current-module {
+  margin-bottom: 8px;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ai-gen-log-list {
+  max-height: 120px;
+  overflow-y: auto;
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.36);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+}
+
+.ai-gen-log-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ai-gen-log-item.is-warning {
+  color: #fde68a;
+}
+
+.ai-gen-log-item.is-error {
+  color: #fecaca;
+}
+
+.ai-gen-log-time {
+  flex: none;
+  color: #94a3b8;
+}
+
+.ai-gen-log-agent {
+  flex: none;
+  color: #86efac;
+  font-weight: 600;
+}
+
+.ai-gen-log-message {
+  min-width: 0;
+  word-break: break-word;
 }
 
 .ai-gen-params-bar {
@@ -2359,11 +3078,12 @@ export default {
   margin-bottom: 0;
 }
 
+/* 用例脑图 - release 版 el-tree 卡片展示 */
 .mindmap-wrap {
   margin-top: 8px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 6px;
-  background: #0f172a;
+  background: #1e293b;
   padding: 14px 12px;
   min-height: 280px;
   overflow: auto;
@@ -2463,6 +3183,11 @@ export default {
 
 .mindmap-node-case {
   border-color: #7fb3e3;
+}
+
+.mindmap-node-active {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.22), 0 1px 8px rgba(56, 189, 248, 0.12);
 }
 
 .mindmap-inline-detail {
@@ -2584,6 +3309,57 @@ body.theme-light .ai-case-import-tip {
   color: #475569;
 }
 
+body.theme-light .case-export-progress-title {
+  color: #111827;
+}
+
+body.theme-light .case-export-progress-desc {
+  color: #64748b;
+}
+
+body.theme-light .ai-gen-progress-bar {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
+}
+
+body.theme-light .ai-gen-progress-title {
+  color: #166534;
+}
+
+body.theme-light .ai-gen-progress-count {
+  color: #15803d;
+}
+
+body.theme-light .ai-gen-current-module {
+  color: #334155;
+}
+
+body.theme-light .ai-gen-log-list {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: #bbf7d0;
+}
+
+body.theme-light .ai-gen-log-item {
+  color: #334155;
+}
+
+body.theme-light .ai-gen-log-item.is-warning {
+  color: #b45309;
+}
+
+body.theme-light .ai-gen-log-item.is-error {
+  color: #b91c1c;
+}
+
+body.theme-light .ai-gen-log-time {
+  color: #64748b;
+}
+
+body.theme-light .ai-gen-log-agent {
+  color: #15803d;
+}
+
 body.theme-light .ai-gen-params-bar {
   background: #f1f6ff;
   border-color: #dbe5f3;
@@ -2593,7 +3369,7 @@ body.theme-light .ai-gen-params-bar {
 body.theme-light .ai-gen-params-label,
 body.theme-light .ai-doc-block-title,
 body.theme-light .ai-case-table-title {
-  color: #0f172a;
+  color: #111827;
 }
 
 body.theme-light .ai-gen-params-hint {
@@ -2620,7 +3396,7 @@ body.theme-light .mindmap-node {
 }
 
 body.theme-light .mindmap-node-title {
-  color: #0f172a;
+  color: #111827;
 }
 
 body.theme-light .mindmap-node-project {
@@ -2648,7 +3424,7 @@ body.theme-light .mindmap-inline-detail-card {
 }
 
 body.theme-light .mindmap-inline-detail-title {
-  color: #0f172a;
+  color: #111827;
 }
 
 body.theme-light .mindmap-inline-detail-item {
@@ -2672,7 +3448,7 @@ body.theme-light .mindmap-empty {
 }
 
 .case-list-tabs .el-tabs__item.is-active {
-  color: #38bdf8;
+  color: #1e40af;
 }
 
 .case-list-tabs .el-tabs__nav-wrap::after {
@@ -2717,7 +3493,7 @@ body.theme-light .case-list-tabs .el-tabs__nav-wrap::after {
 .el-dialog.case-auto-gen-dialog .el-input__inner,
 .el-dialog.case-auto-gen-dialog .el-textarea__inner,
 .el-dialog.case-auto-gen-dialog .el-select .el-input__inner {
-  background-color: #0f172a;
+  background-color: #1e293b;
   border-color: rgba(148, 163, 184, 0.28);
   color: #f8fafc;
 }
@@ -2743,7 +3519,7 @@ body.theme-light .el-dialog.case-auto-gen-dialog .el-form-item__label {
 }
 
 body.theme-light .el-dialog.case-auto-gen-dialog .auto-gen-case-title {
-  color: #0f172a;
+  color: #111827;
 }
 
 body.theme-light .el-dialog.case-auto-gen-dialog .el-input__inner,
@@ -2755,7 +3531,7 @@ body.theme-light .el-dialog.case-auto-gen-dialog .el-select .el-input__inner {
 }
 
 .page-wrap .el-date-editor .el-input__inner {
-  background-color: #0f172a;
+  background-color: #1e293b;
   border-color: rgba(148, 163, 184, 0.28);
   color: #f8fafc;
 }
@@ -2815,7 +3591,7 @@ body.theme-light .page-wrap .el-date-editor .el-range-separator {
 
 .el-dialog.case-ai-detail-dialog .ai-case-detail-text {
   color: #e5e7eb;
-  background: #0f172a;
+  background: #1e293b;
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
@@ -2864,7 +3640,7 @@ body.theme-light .el-dialog.case-ai-detail-dialog .el-dialog__body {
 }
 
 body.theme-light .el-dialog.case-ai-detail-dialog .ai-case-detail-title {
-  color: #0f172a;
+  color: #111827;
 }
 
 body.theme-light .el-dialog.case-ai-detail-dialog .ai-case-detail-label {

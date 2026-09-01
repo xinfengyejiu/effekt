@@ -1,5 +1,7 @@
 # encoding: UTF-8
 from sqlalchemy import func
+import re
+
 
 from ..model.caseModel import CaseReview, CaseSnapshot, Module, TestCase
 from logger import logger
@@ -88,13 +90,22 @@ class CaseDao(object):
         
         prefix = '-'.join(parts)
         
-        count_num = session.query(func.count(TestCase.id)).filter(
+        existing_keys = session.query(TestCase.case_key).filter(
             TestCase.project_id == int(project_id),
             TestCase.is_delete == 0,
             TestCase.case_key.like(f'{prefix}-%')
-        ).scalar() or 0
+        ).all()
+
+        max_num = 0
+        key_pattern = re.compile(r'^{}-(\d+)$'.format(re.escape(prefix)))
+        for row in existing_keys:
+            case_key = row[0] if isinstance(row, tuple) else getattr(row, 'case_key', '')
+            match = key_pattern.match(case_key or '')
+            if match:
+                max_num = max(max_num, int(match.group(1)))
         
-        return '{}-{:03d}'.format(prefix, count_num + 1)
+        return '{}-{:03d}'.format(prefix, max_num + 1)
+
     
     @staticmethod
     def _generate_abbreviation(name):
@@ -245,3 +256,53 @@ class CaseDao(object):
             return {}
         module_items = session.query(Module).filter(Module.id.in_(module_ids), Module.is_delete == 0).all()
         return {module.id: module.name for module in module_items}
+
+    @staticmethod
+    def copy_case(session, source_case_id, user_id=None):
+        """复制用例：读取源用例，生成新编号，创建副本。返回 (new_id, error_msg)。"""
+        source = session.query(TestCase).filter(
+            TestCase.id == int(source_case_id), TestCase.is_delete == 0
+        ).first()
+        if not source:
+            return 0, '源用例不存在'
+
+        project_id = source.project_id
+        module_id = source.module_id
+
+        # 生成新编号（基于同一项目+模块）
+        from ..model.productModel import Product
+        from ..model.projectModel import Project
+
+        product_id = None
+        project = session.query(Project).filter(Project.id == project_id, Project.is_delete == 0).first()
+        if project:
+            product_id = project.product_id
+
+        new_case_key = CaseDao.next_case_key(session, project_id, module_id, product_id)
+
+        # 复制所有字段，重置 id、case_key、is_ai_generated，更新创建人
+        add_info = {
+            'project_id': project_id,
+            'module_id': module_id,
+            'case_key': new_case_key,
+            'title': source.title,
+            'preconditions': source.preconditions,
+            'steps': source.steps,
+            'expected_results': source.expected_results,
+            'priority': source.priority,
+            'case_type': source.case_type,
+            'tags': list(source.tags) if source.tags else [],
+            'status': 1,  # 复制后默认为正常状态
+            'is_auto': source.is_auto,
+            'is_ai_generated': 0,  # 复制后不再标记为 AI 生成
+            'created_by': user_id or source.created_by,
+            'is_delete': 0,
+        }
+
+        new_case = TestCase(**add_info)
+        session.add(new_case)
+        err = session.done(close=False)
+        if err:
+            logger.warning(f'用例复制失败！{err}')
+            return 0, f'复制失败！{err}'
+        return new_case.id, ''

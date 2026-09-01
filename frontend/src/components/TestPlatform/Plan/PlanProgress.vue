@@ -184,7 +184,7 @@ export default {
     progressColor() {
       const value = this.summary.progressPercent
       if (value >= 80) return '#67c23a'
-      if (value >= 50) return '#409eff'
+      if (value >= 50) return '#1e40af'
       if (value >= 30) return '#e6a23c'
       return '#f56c6c'
     },
@@ -340,7 +340,7 @@ export default {
 }
 
 .metric-value.primary {
-  color: #409eff;
+  color: #1e40af;
 }
 
 .board-card {

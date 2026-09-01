@@ -95,7 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_mock_scene_interface ON public.mock_scene(interfa
 CREATE INDEX IF NOT EXISTS idx_mock_call_log_project ON public.mock_call_log(project_id, created_time DESC);
 CREATE INDEX IF NOT EXISTS idx_mock_parse_issue_document ON public.mock_parse_issue(document_id, status);
 
-INSERT INTO public.permission (code, name, module, action, description, status, is_delete, created_time, updated_time) VALUES
+INSERT INTO public.sys_permission (code, name, module, action, description, status, is_delete, created_time, updated_time) VALUES
 ('mock:document:list', 'Mock文档列表', 'mock', 'document:list', '查看Mock文档列表', 1, 0, NOW(), NOW()),
 ('mock:document:import', 'Mock文档导入', 'mock', 'document:import', '导入接口文档并生成Mock草稿', 1, 0, NOW(), NOW()),
 ('mock:document:detail', 'Mock文档详情', 'mock', 'document:detail', '查看Mock文档详情', 1, 0, NOW(), NOW()),
@@ -113,14 +113,14 @@ INSERT INTO public.permission (code, name, module, action, description, status, 
 ('mock:parse-issue:list', 'Mock解析问题列表', 'mock', 'parse-issue:list', '查看Mock解析问题', 1, 0, NOW(), NOW())
 ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, module=EXCLUDED.module, action=EXCLUDED.action, description=EXCLUDED.description, status=EXCLUDED.status, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 VALUES (NULL, 'mock服务', 'mock_service', 1, '/mock', 'mock/index', 'api', 'mock:interface:list', 35, 1, 1, 0, NOW(), NOW())
 ON CONFLICT (code) DO UPDATE SET parent_id=NULL, name=EXCLUDED.name, type=EXCLUDED.type, path=EXCLUDED.path, component=EXCLUDED.component, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
 WITH parent_menu AS (
-    SELECT id FROM public.menu WHERE code = 'mock_service' AND is_delete = 0
+    SELECT id FROM public.sys_menu WHERE code = 'mock_service' AND is_delete = 0
 )
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT id, 'Mock文档', 'mock_document', 2, '/mock/document', 'mock/document/index', 'file-text', 'mock:document:list', 10, 1, 1, 0, NOW(), NOW() FROM parent_menu
 UNION ALL
 SELECT id, 'Mock接口', 'mock_interface', 2, '/mock/interface', 'mock/interface/index', 'api', 'mock:interface:list', 20, 1, 1, 0, NOW(), NOW() FROM parent_menu
@@ -128,7 +128,7 @@ UNION ALL
 SELECT id, 'Mock调用日志', 'mock_log', 2, '/mock/log', 'mock/log/index', 'history', 'mock:log:list', 30, 1, 1, 0, NOW(), NOW() FROM parent_menu
 ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, path=EXCLUDED.path, component=EXCLUDED.component, permission_code=EXCLUDED.permission_code, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-SELECT setval(pg_get_serial_sequence('public.permission', 'id'), COALESCE((SELECT MAX(id) FROM public.permission), 1));
-SELECT setval(pg_get_serial_sequence('public.menu', 'id'), COALESCE((SELECT MAX(id) FROM public.menu), 1));
+SELECT setval(pg_get_serial_sequence('public.sys_permission', 'id'), COALESCE((SELECT MAX(id) FROM public.sys_permission), 1));
+SELECT setval(pg_get_serial_sequence('public.sys_menu', 'id'), COALESCE((SELECT MAX(id) FROM public.sys_menu), 1));
 
 COMMIT;

@@ -82,6 +82,18 @@ export function deleteCase(projectId, caseId) {
   })
 }
 
+/** 复制用例 */
+export function copyCase(projectId, caseId) {
+  return request({
+    url: '/case/copy',
+    method: 'post',
+    data: {
+      projectId,
+      caseId
+    }
+  })
+}
+
 /** 恢复状态为 0 的用例为正常（1），POST body: { caseIds: number[] } */
 export function restoreCases(caseIds) {
   const raw = Array.isArray(caseIds) ? caseIds : [caseIds]
@@ -160,9 +172,28 @@ export function downloadCaseImportTemplate() {
   })
 }
 
-export function importCaseExcel(projectId, file) {
+export function exportCaseExcel(productId, projectId, onDownloadProgress) {
+  return request({
+    url: '/case/export',
+    method: 'get',
+    params: { productId, projectId },
+    responseType: 'blob',
+    timeout: 180000,
+    onDownloadProgress
+  })
+}
+
+export function importCaseExcel(productId, projectId, file) {
+  if (file === undefined) {
+    file = projectId
+    projectId = productId
+    productId = ''
+  }
   const formData = new FormData()
-  // 后端从 request.form.get('projectId') 读取
+  // 后端从 request.form 读取产品与项目，保留旧调用兼容。
+  if (productId) {
+    formData.append('productId', productId)
+  }
   formData.append('projectId', projectId)
   formData.append('file', file)
   return request({

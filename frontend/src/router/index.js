@@ -1,4 +1,4 @@
-import Vue from 'vue'
+﻿import Vue from 'vue'
 import Router from 'vue-router'
 
 Vue.use(Router)
@@ -108,6 +108,62 @@ export default new Router({
           name: 'AiPlatform',
           components: {
             Manage: (resolve) => require(['@/components/TestPlatform/AI/AiPlatform'], resolve)
+          }
+        },
+        {
+          path: '/ai-review',
+          name: 'AiReviewList',
+          components: {
+            Manage: (resolve) => require(['@/components/AIReview/ReviewList'], resolve)
+          }
+        },
+        {
+          path: '/ai-review/create',
+          name: 'AiReviewCreate',
+          components: {
+            Manage: (resolve) => require(['@/components/AIReview/ReviewCreate'], resolve)
+          }
+        },
+        {
+          path: '/ai-review/detail',
+          name: 'AiReviewDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/AIReview/ReviewDetail'], resolve)
+          }
+        },
+        {
+          path: '/ai-workload-estimate',
+          name: 'AiWorkloadEstimateList',
+          components: {
+            Manage: (resolve) => require(['@/components/AIWorkloadEstimate/EstimateList'], resolve)
+          }
+        },
+        {
+          path: '/ai-workload-estimate/create',
+          name: 'AiWorkloadEstimateCreate',
+          components: {
+            Manage: (resolve) => require(['@/components/AIWorkloadEstimate/EstimateCreate'], resolve)
+          }
+        },
+        {
+          path: '/ai-workload-estimate/detail',
+          name: 'AiWorkloadEstimateDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/AIWorkloadEstimate/EstimateDetail'], resolve)
+          }
+        },
+        {
+          path: '/test-asset-governance',
+          name: 'TestAssetGovernanceScanList',
+          components: {
+            Manage: (resolve) => require(['@/components/TestAssetGovernance/ScanList'], resolve)
+          }
+        },
+        {
+          path: '/test-asset-governance/detail',
+          name: 'TestAssetGovernanceScanDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/TestAssetGovernance/ScanDetail'], resolve)
           }
         },
         {
@@ -231,6 +287,116 @@ export default new Router({
           name: 'PerformanceMachinePool',
           components: {
             Manage: (resolve) => require(['@/components/Performance/MachinePool'], resolve)
+          }
+        },
+        {
+          path: '/mobile-automation',
+          redirect: '/mobile-automation/devices'
+        },
+        {
+          path: '/mobile-automation/devices',
+          name: 'MobileAutomationDevices',
+          components: {
+            Manage: (resolve) => require(['@/components/MobileAutomation/EnvironmentCheck'], resolve)
+          }
+        },
+        {
+          path: '/mobile-automation/apps',
+          name: 'MobileAutomationApps',
+          components: {
+            Manage: (resolve) => require(['@/components/MobileAutomation/AppList'], resolve)
+          }
+        },
+        {
+          path: '/mobile-automation/run',
+          name: 'MobileAutomationRun',
+          components: {
+            Manage: (resolve) => require(['@/components/MobileAutomation/ExecutionList'], resolve)
+          }
+        },
+        {
+          path: '/mobile-automation/run/edit',
+          name: 'MobileAutomationRunEdit',
+          components: {
+            Manage: (resolve) => require(['@/components/MobileAutomation/ExecutionCreate'], resolve)
+          }
+        },
+        {
+          path: '/mobile-automation/executions',
+          name: 'MobileAutomationExecutions',
+          components: {
+            Manage: (resolve) => require(['@/components/MobileAutomation/ExecutionRecordList'], resolve)
+          }
+        },
+        {
+          path: '/mobile-automation/execution/detail',
+          name: 'MobileAutomationExecutionDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/MobileAutomation/ExecutionDetail'], resolve)
+          }
+        },
+        {
+          path: '/mobile-automation/page-replay',
+          name: 'MobileAutomationPageReplay',
+          components: {
+            Manage: (resolve) => require(['@/components/MobileAutomation/PageReplay'], resolve)
+          }
+        },
+        {
+          path: '/inspection',
+          redirect: '/inspection/dashboard'
+        },
+        {
+          path: '/inspection/dashboard',
+          name: 'InspectionDashboard',
+          components: {
+            Manage: (resolve) => require(['@/components/Inspection/Dashboard'], resolve)
+          }
+        },
+        {
+          path: '/inspection/groups',
+          redirect: '/inspection/tasks'
+        },
+        {
+          path: '/inspection/tasks',
+          name: 'InspectionTasks',
+          components: {
+            Manage: (resolve) => require(['@/components/Inspection/TaskWorkspace'], resolve)
+          }
+        },
+        {
+          path: '/inspection/task/edit',
+          name: 'InspectionTaskEdit',
+          components: {
+            Manage: (resolve) => require(['@/components/Inspection/TaskForm'], resolve)
+          }
+        },
+        {
+          path: '/inspection/db-configs',
+          name: 'InspectionDbConfigs',
+          components: {
+            Manage: (resolve) => require(['@/components/Inspection/DbConfigList'], resolve)
+          }
+        },
+        {
+          path: '/inspection/executions',
+          name: 'InspectionExecutions',
+          components: {
+            Manage: (resolve) => require(['@/components/Inspection/ExecutionList'], resolve)
+          }
+        },
+        {
+          path: '/inspection/execution/detail',
+          name: 'InspectionExecutionDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/Inspection/ExecutionDetail'], resolve)
+          }
+        },
+        {
+          path: '/inspection/reports',
+          name: 'InspectionReports',
+          components: {
+            Manage: (resolve) => require(['@/components/Inspection/Report'], resolve)
           }
         },
         {

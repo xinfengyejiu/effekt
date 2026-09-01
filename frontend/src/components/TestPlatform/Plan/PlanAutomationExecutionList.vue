@@ -373,7 +373,7 @@ export default {
 }
 
 .report-loading {
-  color: #409eff;
+  color: #1e40af;
   font-size: 16px;
 }
 </style>

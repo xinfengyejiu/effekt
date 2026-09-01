@@ -11,9 +11,10 @@ Base.to_dict = to_dict
 class Report(Base):
     __tablename__ = 'report'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
-    plan_id = Column(BigInteger, nullable=False, comment='计划id')
+    plan_id = Column(BigInteger, nullable=True, comment='计划id')
     project_id = Column(BigInteger, nullable=False, comment='项目id')
     product_id = Column(BigInteger, nullable=False, comment='产品id')
+
     name = Column(String(128), nullable=False, comment='报告名称')
     report_type = Column(SmallInteger, default=1, comment='1:实时报告 2:归档报告')
     summary = Column(JSONB, comment='统计数据')

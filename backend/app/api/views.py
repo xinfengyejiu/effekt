@@ -1,7 +1,8 @@
 # encoding: UTF-8
 from sqlalchemy.exc import OperationalError
-from flask import Blueprint, request
+from flask import Blueprint, request, send_file
 import traceback
+from datetime import datetime
 
 from common.apiResponse import ApiResponse
 from logger import logger
@@ -17,6 +18,7 @@ from .controller.rbacController import RbacController
 from .controller.userController import UserController
 from .controller.bugController import BugController, BugUploadController
 from .controller.projectHookController import ProjectHookController
+from .controller.projectCodePrdController import ProjectCodePrdController
 from .controller.automationController import AutomationController
 from .controller.skillController import SkillController
 from .controller.documentSourceController import DocumentSourceController
@@ -27,6 +29,9 @@ from .controller.aiMcpController import AiMcpController
 from .controller.aiFlowController import AiFlowController
 from .controller.aiTaskController import AiTaskController
 from .controller.aiReportController import AiReportController
+from .controller.aiReviewController import AiReviewController
+from .controller.aiWorkloadEstimateController import AiWorkloadEstimateController
+from .controller.testAssetGovernanceController import TestAssetGovernanceController
 from .controller.knowledgeController import KnowledgeController
 from .controller.performanceController import PerformanceController
 from .controller.preciseTestController import PreciseTestController
@@ -346,6 +351,117 @@ def project_hook_send():
         controller.close_session()
 
 
+@api.route('/project/code-prd/config', methods=['GET'])
+@login_required
+@permission_required('project:detail')
+def project_code_prd_config_detail():
+    controller = ProjectCodePrdController(request.args)
+    try:
+        ret, err_msg = controller.config_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40016, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/code-prd/config/save', methods=['POST'])
+@login_required
+@permission_required('project:update')
+def project_code_prd_config_save():
+    controller = ProjectCodePrdController(request.get_json() or {})
+    try:
+        config_id, err_msg = controller.config_save()
+        if err_msg:
+            return ApiResponse.build_failure(40010, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': config_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/code-prd/branches', methods=['GET'])
+@login_required
+@permission_required('project:detail')
+def project_code_prd_branches():
+    controller = ProjectCodePrdController(request.args)
+    try:
+        branches, err_msg = controller.branch_list()
+        if err_msg:
+            return ApiResponse.build_failure(40016, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'list': branches})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/code-prd/list', methods=['GET'])
+@login_required
+@permission_required('project:detail')
+def project_code_prd_record_list():
+    controller = ProjectCodePrdController(request.args)
+    try:
+        ret, err_msg = controller.record_list()
+        if err_msg:
+            return ApiResponse.build_failure(40016, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/code-prd/detail', methods=['GET'])
+@login_required
+@permission_required('project:detail')
+def project_code_prd_record_detail():
+    controller = ProjectCodePrdController(request.args)
+    try:
+        ret, err_msg = controller.record_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40016, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/code-prd/generate', methods=['POST'])
+@login_required
+@permission_required('project:update')
+def project_code_prd_generate():
+    controller = ProjectCodePrdController(request.get_json() or {})
+    try:
+        record_id, err_msg = controller.generate()
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg, data={'id': record_id})
+        return ApiResponse.build_success(20000, data={'id': record_id, 'message': 'PRD生成任务已启动'})
+    finally:
+        controller.close_session()
+
+
+@api.route('/project/code-prd/export-docx', methods=['GET'])
+@login_required
+@permission_required('project:detail')
+def project_code_prd_export_docx():
+    controller = ProjectCodePrdController(request.args)
+    try:
+        file_obj, filename, err_msg = controller.export_docx()
+        if err_msg:
+            return ApiResponse.build_failure(40016, msg=err_msg)
+        try:
+            return send_file(
+                file_obj,
+                mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                as_attachment=True,
+                download_name=filename
+            )
+        except TypeError:
+            return send_file(
+                file_obj,
+                mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                as_attachment=True,
+                attachment_filename=filename
+            )
+    finally:
+        controller.close_session()
+
+
 @api.route('/product/list', methods=['GET'])
 @login_required
 @permission_required('product:list')
@@ -569,6 +685,7 @@ def case_import():
             logger.warning('case_import失败：请选择文件')
             return ApiResponse.build_failure(40009, msg='请选择文件')
         
+        product_id = request.form.get('productId')
         project_id = request.form.get('projectId')
         if not project_id:
             logger.warning('case_import失败：projectId 为必传参数')
@@ -584,18 +701,18 @@ def case_import():
         
         controller = CaseController({})
         try:
-            success_count, err_msg = controller.case_import(temp_path, project_id)
+            success_count, err_msg = controller.case_import(temp_path, project_id, product_id)
             if err_msg and ('失败' in err_msg or success_count == 0):
-                logger.warning(f'case_import失败：{err_msg}, projectId={project_id}')
+                logger.warning(f'case_import失败：{err_msg}, productId={product_id}, projectId={project_id}')
                 return ApiResponse.build_failure(40009, msg=err_msg)
-            logger.info(f'case_import成功：成功{success_count}条, projectId={project_id}')
+            logger.info(f'case_import成功：成功{success_count}条, productId={product_id}, projectId={project_id}')
             return ApiResponse.build_success(20000, data={'successCount': success_count, 'message': err_msg})
         finally:
             controller.close_session()
             if os.path.exists(temp_path):
                 os.remove(temp_path)
     except Exception as e:
-        logger.error(f'case_import异常：{str(e)}, projectId={request.form.get("projectId")}, 堆栈：{traceback.format_exc()}')
+        logger.error(f'case_import异常：{str(e)}, productId={request.form.get("productId")}, projectId={request.form.get("projectId")}, 堆栈：{traceback.format_exc()}')
         return ApiResponse.build_failure(40009, msg=f'导入失败：{str(e)[:100]}')
 
 
@@ -610,6 +727,28 @@ def import_template():
         return ApiResponse.build_failure(40011, msg='模板文件不存在')
     
     return send_file(template_path, as_attachment=True, attachment_filename='测试用例模版.xlsx')
+
+
+@api.route('/case/export', methods=['GET'])
+@login_required
+@permission_required('case:list')
+def case_export():
+    controller = CaseController(request.args)
+    try:
+        file_obj, filename, err_msg = controller.case_export(request.args.get('projectId'), request.args.get('productId'))
+        if err_msg:
+            return ApiResponse.build_failure(40012, msg=err_msg)
+        return send_file(
+            file_obj,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            attachment_filename=filename
+        )
+    except Exception as e:
+        logger.error(f'case_export异常：{str(e)}, 参数：{dict(request.args)}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40012, msg=f'导出失败：{str(e)[:100]}')
+    finally:
+        controller.close_session()
 
 
 @api.route('/case/snapshot/create', methods=['POST'])
@@ -745,6 +884,16 @@ def plan_case_execute():
     if err_msg:
         return ApiResponse.build_failure(40012, msg=err_msg)
     return ApiResponse.build_success(20000, data={'id': update_id})
+
+
+@api.route('/plan/case/ai-execute', methods=['POST'])
+@login_required
+@permission_required('plan_case:execute')
+def plan_case_ai_execute():
+    ret, err_msg = PlanController(request.get_json() or {}).plan_case_ai_execute()
+    if err_msg:
+        return ApiResponse.build_failure(40012, msg=err_msg)
+    return ApiResponse.build_success(20000, data=ret)
 
 
 @api.route('/plan/progress', methods=['GET'])
@@ -1148,8 +1297,37 @@ def report_generate():
         controller.close_session()
 
 
+@api.route('/report/upload-html', methods=['POST'])
+@login_required
+@permission_required('report:generate')
+def report_upload_html():
+    controller = ReportController(request)
+    try:
+        create_id, err_msg = controller.report_upload_html()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': create_id})
+    finally:
+        controller.close_session()
+
+
+@api.route('/report/delete', methods=['POST'])
+@login_required
+@permission_required('report:delete')
+def report_delete():
+    controller = ReportController(request.get_json() or {})
+    try:
+        delete_id, err_msg = controller.report_delete()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'id': delete_id})
+    finally:
+        controller.close_session()
+
+
 # =========================
 # 造数器与造数任务接口
+
 # =========================
 
 
@@ -1782,6 +1960,86 @@ def bug_upload():
         controller.close_session()
 
 
+@api.route('/bug/import/template', methods=['GET'])
+@login_required
+@permission_required('bug:create')
+def bug_import_template():
+    try:
+        from io import BytesIO
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+    except ImportError:
+        return ApiResponse.build_failure(40011, msg='请先安装 openpyxl 依赖')
+
+    headers = ['标题', '模块', '描述', '类型', '严重程度', '优先级', '状态', '当前指派', '创建人', '环境', '复现步骤', '解决方案', '解决版本', '解决人', '复现率']
+    example = ['登录页提交后无响应', '登录模块', '点击登录按钮后页面无响应', '功能', '一般', 'P2', '新建', '', '', 'Chrome', '1. 打开登录页\n2. 输入账号密码\n3. 点击登录', '', '', '', '必现']
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = 'Bug导入模板'
+    sheet.append(headers)
+    sheet.append(example)
+    header_fill = PatternFill('solid', fgColor='EAF2FF')
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(vertical='center', wrap_text=True)
+    for row in sheet.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical='top', wrap_text=True)
+    widths = [24, 18, 32, 12, 12, 10, 10, 14, 14, 16, 36, 24, 14, 14, 12]
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[chr(64 + index)].width = width
+
+    file_obj = BytesIO()
+    wb.save(file_obj)
+    file_obj.seek(0)
+    try:
+        return send_file(file_obj, as_attachment=True, download_name='Bug导入模板.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except TypeError:
+        return send_file(file_obj, as_attachment=True, attachment_filename='Bug导入模板.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@api.route('/bug/import', methods=['POST'])
+@login_required
+@permission_required('bug:create')
+def bug_import():
+    import os
+
+    try:
+        if 'file' not in request.files:
+            return ApiResponse.build_failure(40009, msg='未找到上传文件')
+        file = request.files['file']
+        if not file or not file.filename:
+            return ApiResponse.build_failure(40009, msg='文件名不能为空')
+        lower_name = file.filename.lower()
+        if not lower_name.endswith('.xlsx'):
+            return ApiResponse.build_failure(40009, msg='仅支持 xlsx 文件')
+        project_id = request.form.get('projectId') or request.form.get('project_id')
+        product_id = request.form.get('productId') or request.form.get('product_id')
+        if not project_id:
+            return ApiResponse.build_failure(40009, msg='projectId 为必传参数')
+
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        attachment_dir = os.path.join(root_dir, 'attachment')
+        os.makedirs(attachment_dir, exist_ok=True)
+        temp_path = os.path.join(attachment_dir, f'temp_bug_import_{datetime.now().strftime("%Y%m%d%H%M%S%f")}.xlsx')
+        file.save(temp_path)
+
+        controller = BugController({})
+        try:
+            success_count, err_msg = controller.bug_import(temp_path, project_id, product_id)
+            if success_count == 0 and err_msg and not err_msg.startswith('导入完成'):
+                return ApiResponse.build_failure(40009, msg=err_msg)
+            return ApiResponse.build_success(20000, data={'successCount': success_count, 'message': err_msg})
+        finally:
+            controller.close_session()
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception as e:
+        logger.error(f'bug_import异常：{str(e)}, productId={request.form.get("productId")}, projectId={request.form.get("projectId")}, 堆栈：{traceback.format_exc()}')
+        return ApiResponse.build_failure(40009, msg=f'导入失败：{str(e)[:100]}')
+
+
 # =========================
 # 文档源接口 (PRD文档/飞书链接)
 # =========================
@@ -1881,7 +2139,41 @@ def document_generate_cases():
         controller.close_session()
 
 
+@api.route('/document/generate-cases-streaming', methods=['POST'])
+@login_required
+@permission_required('document:generate')
+def document_generate_cases_streaming():
+    controller = DocumentSourceController(request.get_json() or {})
+    return controller.document_generate_cases_streaming()
+
+
+@api.route('/document/generation-status', methods=['GET'])
+@login_required
+@permission_required('document:generate')
+def document_generation_status():
+    controller = DocumentSourceController(request.args)
+    try:
+        return ApiResponse.build_success(20000, data=controller.document_generation_status())
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/cancel-generate-cases', methods=['POST'])
+@login_required
+@permission_required('document:generate')
+def document_cancel_generate_cases():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        success, err_msg = controller.document_cancel_generate_cases()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data={'success': success})
+    finally:
+        controller.close_session()
+
+
 @api.route('/document/match-modules', methods=['POST'])
+
 @login_required
 @permission_required('document:generate')
 def document_match_modules():
@@ -2997,6 +3289,214 @@ def ai_report_list():
 def ai_report_detail():
     controller = AiReportController(request.args)
     return _ai_response(controller, controller.report_detail)
+
+
+@api.route('/ai/workload-estimate/create', methods=['POST'])
+@login_required
+@permission_required('ai_workload_estimate:create')
+def ai_workload_estimate_create():
+    controller = AiWorkloadEstimateController(request.get_json() or {})
+    return _ai_response(controller, controller.estimate_create, 'estimateId')
+
+
+@api.route('/ai/workload-estimate/list', methods=['GET'])
+@login_required
+@permission_required('ai_workload_estimate:list')
+def ai_workload_estimate_list():
+    controller = AiWorkloadEstimateController(request.args)
+    return _ai_response(controller, controller.estimate_list)
+
+
+@api.route('/ai/workload-estimate/detail', methods=['GET'])
+@login_required
+@permission_required('ai_workload_estimate:detail')
+def ai_workload_estimate_detail():
+    controller = AiWorkloadEstimateController(request.args)
+    return _ai_response(controller, controller.estimate_detail)
+
+
+@api.route('/ai/workload-estimate/export', methods=['GET'])
+@login_required
+@permission_required('ai_workload_estimate:detail')
+def ai_workload_estimate_export():
+    controller = AiWorkloadEstimateController(request.args)
+    file_obj, filename, err_msg = controller.estimate_export()
+    if err_msg:
+        return ApiResponse.build_failure(40003, err_msg)
+    return send_file(
+        file_obj,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        attachment_filename=filename
+    )
+
+
+@api.route('/ai/workload-estimate/execute', methods=['POST'])
+@login_required
+@permission_required('ai_workload_estimate:execute')
+def ai_workload_estimate_execute():
+    controller = AiWorkloadEstimateController(request.get_json() or {})
+    return _ai_response(controller, controller.estimate_execute)
+
+
+@api.route('/ai/workload-estimate/assign', methods=['POST'])
+@login_required
+@permission_required('ai_workload_estimate:assign')
+def ai_workload_estimate_assign():
+    controller = AiWorkloadEstimateController(request.get_json() or {})
+    return _ai_response(controller, controller.estimate_assign, 'estimateId')
+
+
+@api.route('/ai/workload-estimate/delete', methods=['POST'])
+@login_required
+@permission_required('ai_workload_estimate:delete')
+def ai_workload_estimate_delete():
+    controller = AiWorkloadEstimateController(request.get_json() or {})
+    return _ai_response(controller, controller.estimate_delete, 'estimateId')
+
+
+@api.route('/ai/workload-estimate/actual/save', methods=['POST'])
+@login_required
+@permission_required('ai_workload_estimate:actual:update')
+def ai_workload_estimate_actual_save():
+    controller = AiWorkloadEstimateController(request.get_json() or {})
+    return _ai_response(controller, controller.actual_save)
+
+
+@api.route('/ai/workload-estimate/confirm', methods=['POST'])
+@login_required
+@permission_required('ai_workload_estimate:confirm')
+def ai_workload_estimate_confirm():
+    controller = AiWorkloadEstimateController(request.get_json() or {})
+    return _ai_response(controller, controller.estimate_confirm, 'estimateId')
+
+
+@api.route('/ai/workload-estimate/retry', methods=['POST'])
+@login_required
+@permission_required('ai_workload_estimate:execute')
+def ai_workload_estimate_retry():
+    controller = AiWorkloadEstimateController(request.get_json() or {})
+    return _ai_response(controller, controller.estimate_retry)
+
+
+@api.route('/ai/review/create', methods=['POST'])
+@login_required
+@permission_required('ai_review:create')
+def ai_review_create():
+    controller = AiReviewController(request.get_json() or {})
+    return _ai_response(controller, controller.review_create, 'reviewId')
+
+
+@api.route('/ai/review/list', methods=['GET'])
+@login_required
+@permission_required('ai_review:list')
+def ai_review_list():
+    controller = AiReviewController(request.args)
+    return _ai_response(controller, controller.review_list)
+
+
+@api.route('/ai/review/detail', methods=['GET'])
+@login_required
+@permission_required('ai_review:detail')
+def ai_review_detail():
+    controller = AiReviewController(request.args)
+    return _ai_response(controller, controller.review_detail)
+
+
+@api.route('/ai/review/execute', methods=['POST'])
+@login_required
+@permission_required('ai_review:execute')
+def ai_review_execute():
+    controller = AiReviewController(request.get_json() or {})
+    return _ai_response(controller, controller.review_execute)
+
+
+@api.route('/ai/review/confirm', methods=['POST'])
+@login_required
+@permission_required('ai_review:confirm')
+def ai_review_confirm():
+    controller = AiReviewController(request.get_json() or {})
+    return _ai_response(controller, controller.review_confirm, 'reviewId')
+
+
+@api.route('/ai/review/finding/update', methods=['POST'])
+@login_required
+@permission_required('ai_review:confirm')
+def ai_review_finding_update():
+    controller = AiReviewController(request.get_json() or {})
+    return _ai_response(controller, controller.finding_update, 'findingId')
+
+
+@api.route('/ai/review/case/import', methods=['POST'])
+@login_required
+@permission_required('ai_review:case:import')
+def ai_review_case_import():
+    controller = AiReviewController(request.get_json() or {})
+    return _ai_response(controller, controller.case_import, 'caseId')
+
+
+@api.route('/ai/review/case/link', methods=['POST'])
+@login_required
+@permission_required('ai_review:case:import')
+def ai_review_case_link():
+    controller = AiReviewController(request.get_json() or {})
+    return _ai_response(controller, controller.case_link, 'suggestionId')
+
+
+@api.route('/test-asset/governance/scan/create', methods=['POST'])
+@login_required
+@permission_required('test_asset_governance:create')
+def test_asset_governance_scan_create():
+    controller = TestAssetGovernanceController(request.get_json() or {})
+    return _ai_response(controller, controller.scan_create, 'scanId')
+
+
+@api.route('/test-asset/governance/scan/list', methods=['GET'])
+@login_required
+@permission_required('test_asset_governance:list')
+def test_asset_governance_scan_list():
+    controller = TestAssetGovernanceController(request.args)
+    return _ai_response(controller, controller.scan_list)
+
+
+@api.route('/test-asset/governance/scan/detail', methods=['GET'])
+@login_required
+@permission_required('test_asset_governance:detail')
+def test_asset_governance_scan_detail():
+    controller = TestAssetGovernanceController(request.args)
+    return _ai_response(controller, controller.scan_detail)
+
+
+@api.route('/test-asset/governance/scan/execute', methods=['POST'])
+@login_required
+@permission_required('test_asset_governance:execute')
+def test_asset_governance_scan_execute():
+    controller = TestAssetGovernanceController(request.get_json() or {})
+    return _ai_response(controller, controller.scan_execute)
+
+
+@api.route('/test-asset/governance/issue/list', methods=['GET'])
+@login_required
+@permission_required('test_asset_governance:list')
+def test_asset_governance_issue_list():
+    controller = TestAssetGovernanceController(request.args)
+    return _ai_response(controller, controller.issue_list)
+
+
+@api.route('/test-asset/governance/issue/update', methods=['POST'])
+@login_required
+@permission_required('test_asset_governance:issue:update')
+def test_asset_governance_issue_update():
+    controller = TestAssetGovernanceController(request.get_json() or {})
+    return _ai_response(controller, controller.issue_update, 'issueId')
+
+
+@api.route('/test-asset/governance/action/apply', methods=['POST'])
+@login_required
+@permission_required('test_asset_governance:action')
+def test_asset_governance_action_apply():
+    controller = TestAssetGovernanceController(request.get_json() or {})
+    return _ai_response(controller, controller.action_apply, 'actionId')
 
 
 # =========================

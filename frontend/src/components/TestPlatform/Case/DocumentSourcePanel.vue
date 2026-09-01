@@ -3,14 +3,15 @@
     <div v-if="!compact" class="document-source-main">
     <div class="document-source-head">
       <span class="document-source-title">文档源</span>
-      <span class="document-source-hint">PRD / 飞书</span>
+      <span class="document-source-hint">PDF / Excel / Markdown / 飞书</span>
     </div>
 
     <el-form :inline="true" size="mini" class="document-source-filters" @submit.native.prevent>
       <el-form-item label="类型">
-        <el-select v-model="docQuery.type" clearable placeholder="全部" style="width: 88px;">
+        <el-select v-model="docQuery.type" clearable placeholder="全部" style="width: 96px;">
           <el-option label="PDF" :value="1"></el-option>
           <el-option label="飞书" :value="2"></el-option>
+          <el-option label="Excel" :value="3"></el-option>
         </el-select>
       </el-form-item>
       <el-form-item label="状态">
@@ -52,9 +53,9 @@
       :empty-text="projectId ? '暂无文档' : '请先选择项目'"
       @row-click="handleDocRowClick">
       <el-table-column prop="id" label="ID" width="56"></el-table-column>
-      <el-table-column label="类型" width="72">
+      <el-table-column label="类型" width="80">
         <template slot-scope="scope">
-          <el-tag size="mini" :type="scope.row.type === 2 ? 'warning' : 'info'">{{ formatDocType(scope.row.type) }}</el-tag>
+          <el-tag size="mini" :type="docTypeTagType(scope.row.type)">{{ formatDocType(scope.row.type) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="88">
@@ -116,60 +117,44 @@
 
     <!-- 新建 -->
     <el-dialog title="新建文档" :visible.sync="createVisible" width="560px" append-to-body @close="resetCreateForm">
-      <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="96px" size="small">
-        <el-form-item label="类型" prop="type">
-          <el-select v-model="createForm.type" style="width: 100%;" @change="onCreateTypeChange">
-            <el-option label="PDF" :value="1"></el-option>
-            <el-option label="飞书链接" :value="2"></el-option>
-          </el-select>
+      <el-form ref="createFormRef" :model="createForm" label-width="96px" size="small">
+        <el-form-item label="文档上传">
+          <div class="pdf-upload-row">
+            <el-button size="small" type="primary" plain :disabled="!projectId" @click="triggerPdfMultiSelect">选择文档</el-button>
+            <span class="pdf-upload-hint">支持 PDF、Excel、Markdown</span>
+          </div>
+          <input
+            ref="pdfMultiInput"
+            type="file"
+            class="hidden-pdf-input"
+            :accept="currentUploadAccept"
+            @change="onPdfMultiInputChange">
+          <ul v-if="pdfPendingFiles.length" class="pdf-pending-list">
+            <li v-for="(f, idx) in pdfPendingFiles" :key="idx + f.name + f.size" class="pdf-pending-item">
+              <span class="pdf-pending-name">{{ f.name }}</span>
+              <span class="pdf-pending-size">（{{ formatFileSize(f.size) }}）</span>
+              <el-button type="text" size="mini" @click="removePdfPending(idx)">移除</el-button>
+            </li>
+          </ul>
+          <p v-else class="pdf-upload-empty">未选择文件</p>
         </el-form-item>
-
-        <template v-if="createForm.type === 1">
-          <el-form-item label="PDF 上传">
-            <div class="pdf-upload-row">
-              <el-button size="small" type="primary" plain :disabled="!projectId" @click="triggerPdfMultiSelect">选择 PDF（可多选）</el-button>
-              <span class="pdf-upload-hint">每个文件将单独请求上传接口</span>
-            </div>
-            <input
-              ref="pdfMultiInput"
-              type="file"
-              class="hidden-pdf-input"
-              multiple
-              accept=".pdf,application/pdf"
-              @change="onPdfMultiInputChange">
-            <ul v-if="pdfPendingFiles.length" class="pdf-pending-list">
-              <li v-for="(f, idx) in pdfPendingFiles" :key="idx + f.name + f.size" class="pdf-pending-item">
-                <span class="pdf-pending-name">{{ f.name }}</span>
-                <span class="pdf-pending-size">（{{ formatFileSize(f.size) }}）</span>
-                <el-button type="text" size="mini" @click="removePdfPending(idx)">移除</el-button>
-              </li>
-            </ul>
-            <p v-else class="pdf-upload-empty">未选择文件</p>
-          </el-form-item>
-        </template>
-
-        <template v-else>
-          <el-form-item label="来源" prop="source">
-            <el-input v-model="createForm.source" placeholder="飞书文档链接"></el-input>
-          </el-form-item>
-          <el-form-item label="内容">
-            <el-input v-model="createForm.content" type="textarea" :rows="4" placeholder="可选"></el-input>
-          </el-form-item>
-        </template>
+        <el-form-item label="飞书链接">
+          <el-input v-model="createForm.source" placeholder="也可以粘贴飞书文档链接"></el-input>
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="createForm.content" type="textarea" :rows="4" placeholder="飞书链接可选补充内容"></el-input>
+        </el-form-item>
       </el-form>
       <span slot="footer">
         <el-button size="small" @click="createVisible = false">取消</el-button>
-        <template v-if="createForm.type === 1">
-          <el-button
-            type="primary"
-            size="small"
-            :loading="pdfUploading"
-            :disabled="!pdfPendingFiles.length || !projectId"
-            @click="submitAllPdfUploads">
-            上传全部
-          </el-button>
-        </template>
-        <el-button v-else type="primary" size="small" :loading="createSubmitting" @click="submitCreate">确定</el-button>
+        <el-button
+          type="primary"
+          size="small"
+          :loading="pdfUploading || createSubmitting"
+          :disabled="!projectId || (!pdfPendingFiles.length && !createForm.source)"
+          @click="submitCreate">
+          确定
+        </el-button>
       </span>
     </el-dialog>
 
@@ -180,6 +165,8 @@
           <el-select v-model="editForm.type" style="width: 100%;">
             <el-option label="PDF" :value="1"></el-option>
             <el-option label="飞书链接" :value="2"></el-option>
+            <el-option label="Excel" :value="3"></el-option>
+            <el-option label="Markdown" :value="4"></el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="来源">
@@ -271,6 +258,7 @@ import {
   deleteDocument,
   refreshDocument,
   generateDocumentCases,
+  generateDocumentCasesStreaming,
   matchDocumentModules,
   importDocumentCases,
   batchCreateDocumentModules
@@ -318,12 +306,8 @@ export default {
       pdfUploading: false,
       pdfPendingFiles: [],
       createForm: {
-        type: 1,
         source: '',
         content: ''
-      },
-      createRules: {
-        source: [{ required: true, message: '请输入飞书链接', trigger: 'blur' }]
       },
       editVisible: false,
       editSubmitting: false,
@@ -355,6 +339,9 @@ export default {
     detailContentDisplay() {
       if (!this.detailRecord) return ''
       return this.detailRecord.content || ''
+    },
+    currentUploadAccept() {
+      return '.pdf,.xlsx,.xls,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/markdown,text/x-markdown,text/plain'
     }
   },
   watch: {
@@ -382,7 +369,15 @@ export default {
     formatDocType(type) {
       if (type === 2) return '飞书'
       if (type === 1) return 'PDF'
+      if (type === 3) return 'Excel'
+      if (type === 4) return 'Markdown'
       return '—'
+    },
+    docTypeTagType(type) {
+      if (type === 2) return 'warning'
+      if (type === 3) return 'success'
+      if (type === 4) return 'primary'
+      return 'info'
     },
     formatDocStatus(status) {
       const map = { 0: '待解析', 1: '已解析', 2: '已生成用例' }
@@ -475,31 +470,18 @@ export default {
         return
       }
       this.createForm = {
-        type: 1,
         source: '',
         content: ''
       }
       this.pdfPendingFiles = []
       this.createVisible = true
-      this.$nextTick(() => {
-        this.$refs.createFormRef && this.$refs.createFormRef.clearValidate()
-      })
     },
     resetCreateForm() {
-      this.createForm = { type: 1, source: '', content: '' }
+      this.createForm = { source: '', content: '' }
       this.pdfPendingFiles = []
       if (this.$refs.pdfMultiInput) {
         this.$refs.pdfMultiInput.value = ''
       }
-    },
-    onCreateTypeChange() {
-      this.pdfPendingFiles = []
-      if (this.$refs.pdfMultiInput) {
-        this.$refs.pdfMultiInput.value = ''
-      }
-      this.$nextTick(() => {
-        this.$refs.createFormRef && this.$refs.createFormRef.clearValidate()
-      })
     },
     triggerPdfMultiSelect() {
       this.$refs.pdfMultiInput && this.$refs.pdfMultiInput.click()
@@ -510,21 +492,28 @@ export default {
       if (input) {
         input.value = ''
       }
-      const pdfs = picked.filter(f => {
-        const name = String(f.name || '').toLowerCase()
-        return name.endsWith('.pdf') || f.type === 'application/pdf'
-      })
-      if (picked.length && pdfs.length < picked.length) {
-        this.$message.warning('已忽略非 PDF 文件')
+      const matched = picked.filter(f => this.isSupportedDocumentFile(f))
+      if (picked.length && matched.length < picked.length) {
+        this.$message.warning('已忽略非 PDF / Excel / Markdown 文件')
       }
-      const seen = new Set(this.pdfPendingFiles.map(x => `${x.name}_${x.size}`))
-      pdfs.forEach(f => {
-        const key = `${f.name}_${f.size}`
-        if (!seen.has(key)) {
-          seen.add(key)
-          this.pdfPendingFiles.push(f)
-        }
-      })
+      if (matched.length > 1) {
+        this.$message.warning('一次仅支持上传一个文档，已保留第一个文件')
+      }
+      this.pdfPendingFiles = matched.slice(0, 1)
+    },
+    isSupportedDocumentFile(file) {
+      const name = String(file && file.name ? file.name : '').toLowerCase()
+      const type = String(file && file.type ? file.type : '').toLowerCase()
+      return name.endsWith('.pdf') ||
+        name.endsWith('.xlsx') ||
+        name.endsWith('.xls') ||
+        name.endsWith('.md') ||
+        name.endsWith('.markdown') ||
+        type === 'application/pdf' ||
+        type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        type === 'application/vnd.ms-excel' ||
+        type === 'text/markdown' ||
+        type === 'text/x-markdown'
     },
     removePdfPending(index) {
       this.pdfPendingFiles.splice(index, 1)
@@ -541,68 +530,56 @@ export default {
         this.$message.warning('请先选择产品与项目')
         return
       }
-      const files = this.pdfPendingFiles.slice()
+      const files = this.pdfPendingFiles.slice(0, 1)
       if (!files.length) {
-        this.$message.warning('请先选择 PDF 文件')
+        this.$message.warning('请先选择 PDF、Excel 或 Markdown 文件')
         return
       }
       const productId = Number(this.productId)
       const projectId = Number(this.projectId)
       const createdBy = this.currentUser && this.currentUser.id ? this.currentUser.id : undefined
       this.pdfUploading = true
-      const failed = []
-      let ok = 0
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]
-        try {
-          await uploadDocumentPdf({ file, productId, projectId, createdBy })
-          ok += 1
-        } catch (e) {
-          failed.push(file)
-        }
-      }
-      this.pdfUploading = false
-      this.pdfPendingFiles = failed
-      if (ok) {
+      try {
+        await uploadDocumentPdf({ file: files[0], productId, projectId, createdBy })
+        this.pdfPendingFiles = []
         this.syncDocumentListAfterMutation()
-      }
-      if (ok && !failed.length) {
-        this.$message.success(`已上传 ${ok} 个 PDF`)
+        this.$message.success('上传成功')
         this.createVisible = false
-      } else if (ok && failed.length) {
-        this.$message.warning(`成功 ${ok} 个，失败 ${failed.length} 个；失败项仍留在列表中，可修正后重试`)
-      } else {
+      } catch (e) {
         this.$message.error('上传失败，请检查网络或文件后重试')
+      } finally {
+        this.pdfUploading = false
       }
     },
     submitCreate() {
-      if (this.createForm.type === 1) {
-        this.$message.info('PDF 请使用「选择 PDF」并点击「上传全部」')
+      if (this.pdfPendingFiles.length) {
+        this.submitAllPdfUploads()
         return
       }
-      this.$refs.createFormRef.validate(valid => {
-        if (!valid) return
-        this.createSubmitting = true
-        const payload = {
-          productId: Number(this.productId),
-          projectId: Number(this.projectId),
-          type: this.createForm.type,
-          source: this.createForm.source,
-          content: this.createForm.content || undefined
-        }
-        if (this.currentUser && this.currentUser.id) {
-          payload.createdBy = this.currentUser.id
-        }
-        createDocument(payload)
-          .then(() => {
-            this.$message.success('创建成功')
-            this.createVisible = false
-            this.syncDocumentListAfterMutation()
-          })
-          .finally(() => {
-            this.createSubmitting = false
-          })
-      })
+      if (!this.createForm.source) {
+        this.$message.warning('请选择一个文档，或填写飞书链接')
+        return
+      }
+      this.createSubmitting = true
+      const payload = {
+        productId: Number(this.productId),
+        projectId: Number(this.projectId),
+        type: 2,
+        source: this.createForm.source,
+        content: this.createForm.content || undefined
+      }
+      if (this.currentUser && this.currentUser.id) {
+        payload.createdBy = this.currentUser.id
+      }
+      createDocument(payload)
+        .then(() => {
+          this.$message.success('创建成功')
+          this.createVisible = false
+          this.syncDocumentListAfterMutation()
+        })
+        .finally(() => {
+          this.createSubmitting = false
+        })
     },
     handleDocCommand(cmd, row) {
       if (cmd === 'refresh') {
@@ -684,31 +661,54 @@ export default {
     runGenerate() {
       if (!this.activeDocument || !this.projectId) return
       this.generateLoading = true
-      generateDocumentCases({
+      this.previewCases = []
+      this.previewTotal = 0
+
+      const payload = {
         documentIds: [this.activeDocument.id],
         projectId: Number(this.projectId),
         priority: this.genForm.priority,
         caseType: this.genForm.caseType,
         tags: ['AI生成']
-      })
-        .then(res => {
-          const data = (res && res.data) || res || {}
-          const list = data.cases || []
-          this.previewTotal = Number(data.total || list.length || 0)
-          this.previewCases = list.map(item =>
-            Object.assign({}, item, {
-              selected: true,
-              module_id: item.module_id != null && item.module_id !== '' ? Number(item.module_id) : null,
-              module_name: item.module_name || ''
-            })
-          )
-          if (!this.previewCases.length) {
-            this.$message.info('未返回预览用例')
+      }
+
+      generateDocumentCasesStreaming(
+        payload,
+        (parsed) => {
+          const event = parsed.event
+          const data = parsed.data || {}
+          if (event === 'progress') {
+            // 实时更新进度提示
+            this.previewTotal = data.totalCasesSoFar || 0
+          } else if (event === 'done') {
+            const totalCases = data.totalCases || 0
+            const importedCount = data.importedCount || 0
+            if (totalCases > 0) {
+              this.$message.success(`生成完成，共${totalCases}条用例，已导入${importedCount}条`)
+            } else {
+              this.$message.warning('AI未生成任何测试用例，请检查文档内容')
+            }
+            if (data.hasError || (data.failedChunks && data.failedChunks.length)) {
+              const errMsgs = (data.failedChunks || []).map(f => f.error || '未知错误').join('; ')
+              if (errMsgs) {
+                this.$message.warning(`部分分段生成失败: ${errMsgs}`)
+              }
+            }
+          } else if (event === 'error') {
+            this.$message.error(data.message || '生成失败')
+            this.previewCases = []
+            this.previewTotal = 0
           }
-        })
-        .finally(() => {
+        },
+        (err) => {
+          this.$message.error(`生成失败: ${err.message || '网络错误'}`)
+          this.previewCases = []
+          this.previewTotal = 0
+        },
+        () => {
           this.generateLoading = false
-        })
+        }
+      )
     },
     runMatch() {
       if (!this.activeDocument || !this.previewCases.length) return

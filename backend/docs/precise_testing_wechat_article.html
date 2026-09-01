@@ -1,0 +1,135 @@
+<section style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #2b2f36; line-height: 1.75; font-size: 16px;">
+  <section style="text-align: center; margin: 8px 0 24px;">
+    <h2 style="font-size: 22px; font-weight: bold; color: #1f2937; margin: 0; line-height: 1.45;">
+      从“全量回归”到“精准回归”
+    </h2>
+    <p style="font-size: 15px; color: #4b5563; margin: 8px 0 0;">
+      我们给效能平台补上了一条 JaCoCo 增量覆盖率闭环
+    </p>
+  </section>
+
+  <blockquote style="border-left: 4px solid #2563eb; padding: 10px 15px; background-color: #f3f7ff; color: #374151; font-size: 15px; line-height: 1.7; margin: 0 0 22px;">
+    每次上线前，测试团队最怕的不是“没有回归”，而是“回归不知道该回哪里”。
+  </blockquote>
+
+  <p style="margin: 0 0 14px;">代码改了几十个文件，研发说影响不大；业务说这次很急；测试只能把核心用例再扫一遍。最后不是回归范围过大拖慢交付，就是漏测风险藏在某个边角分支里。</p>
+  <p style="margin: 0 0 18px;">这也是我们最近在效能平台里补齐“精准测试”能力的原因：让平台基于 Git Diff、关系图谱、AI 影响分析、推荐用例、Jenkins 执行和 JaCoCo 增量覆盖率，给出一条可落地的精准回归链路。</p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">一、为什么要做精准测试？</h3>
+  </section>
+  <p style="margin: 0 0 12px;">传统回归有三个典型问题。</p>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li style="margin-bottom: 8px;"><strong>范围靠经验。</strong>变更文件、接口、模块、用例之间的关系没有沉淀，测试范围常常依赖研发口头说明。</li>
+    <li style="margin-bottom: 8px;"><strong>覆盖率看整体。</strong>整体 JaCoCo 覆盖率可能不错，但真正新增或修改的代码有没有被测到，往往不清楚。</li>
+    <li style="margin-bottom: 8px;"><strong>执行链路断开。</strong>影响分析、用例推荐、Jenkins 执行、覆盖率报告、质量门禁分散在不同系统里，过程难复盘。</li>
+  </ul>
+  <p style="margin: 0 0 18px;">精准测试要解决的，就是把这些碎片连起来。</p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">二、这次平台新增了什么？</h3>
+  </section>
+  <p style="margin: 0 0 14px;">这次新增的精准测试能力，核心围绕六个页面和一条执行闭环。</p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">1. 变更分析</h4>
+  <p style="margin: 0 0 12px;">平台可以基于产品名称和项目名称创建变更分析任务，关联 Git 仓库、分支、Base Commit 和 Target Commit。</p>
+  <p style="margin: 0 0 12px;">解析 Git Diff 后，系统会记录每个变更文件、变更行号、代码片段，并在详情页中支持查看真实代码片段。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：到底改了什么。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">2. AI 影响分析</h4>
+  <p style="margin: 0 0 12px;">过去 AI 影响分析只是一个兜底 JSON，信息比较空。现在它会输出结构化结果：</p>
+  <ul style="padding-left: 22px; margin: 0 0 14px;">
+    <li>综合结论</li>
+    <li>受影响模块</li>
+    <li>受影响接口或链路</li>
+    <li>风险点</li>
+    <li>测试关注点</li>
+    <li>推荐回归策略</li>
+  </ul>
+  <p style="margin: 0 0 12px;">例如系统会识别 ERP 业务、系统管理、基础框架、部署配置等受影响模块，并说明可能影响导入导出、分页查询、接口参数校验、权限边界、异常分支和 Jenkins 执行环境。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：这些变更可能影响哪里。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">3. 关系图谱</h4>
+  <p style="margin: 0 0 12px;">平台支持维护文件、接口、模块、用例、脚本之间的关系。</p>
+  <p style="margin: 0 0 12px;">当变更文件命中关系图谱时，系统可以沿着“文件 -> 接口 -> 模块 -> 用例 -> 脚本”的链路生成推荐。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：变更和测试资产怎么关联。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">4. 回归推荐</h4>
+  <p style="margin: 0 0 12px;">系统会根据关系图谱和 AI 影响分析生成推荐用例。</p>
+  <p style="margin: 0 0 12px;">如果关系图谱暂时不完整，也会基于变更文件生成兜底推荐，避免页面空着无法继续流程。推荐结果里会包含推荐等级、风险等级、用例 ID、脚本 ID、模块、接口、推荐原因、AI 原因和是否采纳。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：应该测哪些用例。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">5. Jenkins 精准回归</h4>
+  <p style="margin: 0 0 12px;">点击“发起精准回归”后，平台会创建执行记录，并把参数传给 Jenkins。</p>
+  <section style="background-color: #f8fafc; border: 1px solid #e5e7eb; padding: 12px 14px; margin: 0 0 14px;">
+    <p style="margin: 0; font-size: 14px; color: #374151;">
+      ANALYSIS_ID / PROJECT_ID / CASE_IDS / SCRIPT_IDS / BASE_COMMIT / TARGET_COMMIT / RUN_MODE=precise / CALLBACK_TOKEN / PLATFORM_BASE_URL
+    </p>
+  </section>
+  <p style="margin: 0 0 12px;">默认 Jenkins Job 为 <strong>precise-test-runner</strong>。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：推荐出来的用例怎么执行。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">6. JaCoCo 增量覆盖率</h4>
+  <p style="margin: 0 0 12px;">Jenkins 执行完成后，平台可以拉取或上传 JaCoCo XML，并计算增量覆盖率。</p>
+  <p style="margin: 0 0 12px;">这里重点不是看整体覆盖率，而是看“变更代码是否被覆盖”。覆盖率报告会展示变更行数、已覆盖变更行、未覆盖变更行、增量覆盖率、未覆盖代码片段、完整变更代码片段和 AI 风险分析。</p>
+  <p style="margin: 0 0 12px;">弹框中的代码片段已经改为读取真实仓库文件内容，不再用模板数据。已覆盖行和未覆盖行也会按照实际行号进行标记，方便测试、研发一起定位风险。</p>
+  <p style="margin: 0 0 16px; color: #2563eb;"><strong>这一步解决的是：这次改动有没有被测到。</strong></p>
+
+  <h4 style="font-size: 17px; color: #1f2937; margin: 18px 0 8px;">7. 质量门禁</h4>
+  <p style="margin: 0 0 12px;">质量门禁会基于增量覆盖率、P0/P1 用例执行情况和风险分析给出结果。</p>
+  <p style="margin: 0 0 16px;">如果增量覆盖率不足，或者关键推荐用例未通过，门禁会阻断发布，并给出修复建议。</p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">三、完整链路长什么样？</h3>
+  </section>
+  <section style="text-align: center; background-color: #f3f7ff; padding: 14px 10px; margin: 0 0 18px; color: #1f2937; font-size: 15px;">
+    变更分析 -> AI 影响分析 -> 关系图谱匹配 -> 推荐用例 -> Jenkins 精准回归 -> JaCoCo 增量覆盖率 -> 质量门禁
+  </section>
+  <p style="margin: 0 0 12px;">它的价值不在于某一个页面，而在于把一次代码变更从“分析、推荐、执行、验证、门禁”串成闭环。</p>
+  <p style="margin: 0 0 12px;">测试不再只问：“这次要不要全量回归？”而是可以看平台给出的结果：</p>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li>哪些模块受影响？</li>
+    <li>哪些接口需要回归？</li>
+    <li>哪些用例应该优先执行？</li>
+    <li>哪些变更行没有覆盖？</li>
+    <li>哪些未覆盖代码存在发布风险？</li>
+    <li>当前是否满足质量门禁？</li>
+  </ul>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">四、这套能力适合什么场景？</h3>
+  </section>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li style="margin-bottom: 8px;">适合多模块系统，比如 ERP、系统管理、基础框架、消息通知、三方登录等模块频繁变更的项目。</li>
+    <li style="margin-bottom: 8px;">适合自动化资产逐步沉淀中的团队。即使关系图谱不完整，也可以先用兜底推荐跑通流程。</li>
+    <li style="margin-bottom: 8px;">适合想把覆盖率从“整体指标”推进到“变更质量指标”的团队。</li>
+    <li style="margin-bottom: 8px;">适合需要 Jenkins、Git、JaCoCo、测试平台联动的交付团队。</li>
+  </ul>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">五、落地后的收益</h3>
+  </section>
+  <ul style="padding-left: 22px; margin: 0 0 18px;">
+    <li>变更范围可视化</li>
+    <li>影响分析结构化</li>
+    <li>回归推荐可采纳</li>
+    <li>Jenkins 执行可追踪</li>
+    <li>增量覆盖率可核验</li>
+    <li>未覆盖代码可定位</li>
+    <li>发布门禁可判断</li>
+  </ul>
+  <p style="margin: 0 0 18px;">更重要的是，它把“测试经验”变成了“平台数据”。一次变更不再只是几个 commit，也不再只是一次 Jenkins 构建，而是可以沉淀为可追溯的质量记录。</p>
+
+  <section style="margin: 24px 0 12px;">
+    <h3 style="font-size: 19px; color: #111827; border-left: 4px solid #2563eb; padding-left: 10px; margin: 0;">六、下一步可以继续增强什么？</h3>
+  </section>
+  <ol style="padding-left: 22px; margin: 0 0 18px;">
+    <li style="margin-bottom: 8px;">把关系图谱自动化，通过代码扫描、接口路由、用例标签、脚本元数据自动生成更多关系。</li>
+    <li style="margin-bottom: 8px;">把 JaCoCo 覆盖率和测试用例执行结果进一步关联，让平台知道某一段代码到底由哪些用例覆盖。</li>
+    <li style="margin-bottom: 8px;">引入更细粒度的风险评分，结合变更复杂度、历史缺陷、模块稳定性、未覆盖代码、失败用例形成发布风险指数。</li>
+  </ol>
+
+  <blockquote style="border-left: 4px solid #2563eb; padding: 10px 15px; background-color: #f3f7ff; color: #374151; font-size: 15px; line-height: 1.7; margin: 22px 0 0;">
+    精准测试不是为了替代测试判断，而是为了让判断有依据。当平台能告诉我们“哪里变了、影响什么、该测什么、测到了没有、能不能发”，回归就不再是一次模糊的扫雷，而是一条清晰的工程化链路。
+  </blockquote>
+</section>

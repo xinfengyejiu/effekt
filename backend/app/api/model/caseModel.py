@@ -1,4 +1,5 @@
-from sqlalchemy import BigInteger, Column, Integer, SmallInteger, String, TIMESTAMP, Text, text
+from sqlalchemy import BigInteger, Column, Index, Integer, SmallInteger, String, TIMESTAMP, Text, text
+
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -22,7 +23,11 @@ class Module(Base):
 
 class TestCase(Base):
     __tablename__ = 'test_case'
+    __table_args__ = (
+        Index('uk_test_case_project_case_key_active', 'project_id', 'case_key', unique=True, postgresql_where=text('is_delete = 0')),
+    )
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
+
     project_id = Column(BigInteger, nullable=False, comment='项目id')
     module_id = Column(BigInteger, comment='模块id')
     case_key = Column(String(64), nullable=False, comment='项目内唯一编号')
@@ -40,6 +45,34 @@ class TestCase(Base):
     is_delete = Column(Integer, default=0, comment='0：未删除；1：已删除')
     created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), nullable=True, comment='创建时间')
     updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'), nullable=True, comment='修改时间')
+
+
+class CaseGenerationCheckpoint(Base):
+    __tablename__ = 'case_generation_checkpoint'
+    __table_args__ = (
+        Index('idx_case_generation_checkpoint_scope', 'project_id', 'document_scope_key', 'template_key'),
+        Index('uk_case_generation_checkpoint_task', 'project_id', 'document_scope_key', 'template_key', 'task_key', unique=True),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
+    project_id = Column(BigInteger, nullable=False, comment='项目id')
+    document_scope_key = Column(String(128), nullable=False, comment='文档集合标识')
+    document_ids = Column(ARRAY(BigInteger), server_default=text("'{}'::bigint[]"), comment='文档ID集合')
+    template_key = Column(String(128), nullable=False, comment='生成参数标识')
+    task_key = Column(String(128), nullable=False, comment='生成点任务标识')
+    task_index = Column(Integer, nullable=False, comment='任务序号')
+    chunk_index = Column(Integer, default=0, comment='文档分段序号')
+    chunk_title = Column(String(512), comment='生成点标题')
+    agent_name = Column(String(255), comment='agent名称')
+    skill_id = Column(BigInteger, comment='Skill ID')
+    skill_name = Column(String(255), comment='Skill名称')
+    status = Column(String(32), default='pending', comment='pending/running/success/failed/skipped')
+    imported_count = Column(Integer, default=0, comment='入库数量')
+    skipped_count = Column(Integer, default=0, comment='跳过重复数量')
+    error_message = Column(Text, comment='错误信息')
+    generation_id = Column(String(64), comment='最近一次生成ID')
+    created_by = Column(BigInteger, comment='创建人')
+    created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), nullable=True, comment='创建时间')
+    updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'), nullable=True, comment='更新时间')
 
 
 class CaseSnapshot(Base):

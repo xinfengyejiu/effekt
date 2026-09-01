@@ -1,4 +1,4 @@
-FROM xxx:xxx/library/python:3.10-bookworm
+FROM python:3.10-bookworm
 
 WORKDIR /app
 
@@ -14,4 +14,4 @@ COPY . .
 
 EXPOSE 5010
 
-CMD ["gunicorn", "--config=gunicorn.conf.py", "manage:app"]
+CMD ["gunicorn", "--config=gunicorn.conf.py", "app.main:app"]

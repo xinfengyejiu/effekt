@@ -2,6 +2,7 @@
   <div class="page-wrap">
     <page-section title="测试报告">
       <template slot="extra">
+        <el-button size="small" @click="openUploadDialog">上传HTML报告</el-button>
         <el-button type="primary" size="small" :loading="generating" @click="handleGenerate">生成报告</el-button>
       </template>
       <el-form :inline="true" :model="queryForm" size="small" @submit.native.prevent>
@@ -66,7 +67,7 @@
           <template slot-scope="scope">{{ formatPlanName(scope.row) }}</template>
         </el-table-column>
         <el-table-column label="类型" width="120">
-          <template slot-scope="scope">{{ formatReportType(scope.row.report_type || scope.row.type) }}</template>
+          <template slot-scope="scope">{{ formatReportType(scope.row.report_type || scope.row.type, scope.row) }}</template>
         </el-table-column>
         <el-table-column label="生成时间" min-width="180">
           <template slot-scope="scope">{{ formatDateTime(scope.row.generated_time || scope.row.generated_at || scope.row.created_at || scope.row.create_time) }}</template>
@@ -74,6 +75,7 @@
         <el-table-column label="操作" width="180">
           <template slot-scope="scope">
             <el-button type="text" @click="goViewer(scope.row)">查看链接</el-button>
+            <el-button type="text" class="danger-action" @click="handleDelete(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -89,6 +91,46 @@
         </el-pagination>
       </div>
     </page-section>
+    <el-dialog title="上传HTML报告" :visible.sync="uploadDialogVisible" width="560px" @closed="resetUploadForm">
+      <el-form ref="uploadForm" :model="uploadForm" :rules="uploadRules" label-width="96px" size="small">
+        <el-form-item label="产品名称" required>
+          <el-select v-model="uploadForm.productId" filterable placeholder="请选择产品" style="width: 100%;" @change="handleUploadProductChange">
+            <el-option v-for="item in productOptions" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="项目名称" required>
+          <el-select v-model="uploadForm.projectId" filterable placeholder="请选择项目" style="width: 100%;" :disabled="!uploadForm.productId" @change="handleUploadProjectChange">
+            <el-option v-for="item in uploadProjectOptions" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="计划名称">
+          <el-select v-model="uploadForm.planId" filterable clearable placeholder="可选，关联测试计划" style="width: 100%;" :disabled="!uploadForm.projectId">
+            <el-option v-for="item in uploadPlanOptions" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="报告名称" prop="name">
+          <el-input v-model="uploadForm.name" maxlength="128" placeholder="默认使用文件名"></el-input>
+        </el-form-item>
+        <el-form-item label="HTML文件" prop="file">
+          <el-upload
+            ref="htmlUpload"
+            action=""
+            :auto-upload="false"
+            :limit="1"
+            :file-list="uploadFileList"
+            :on-change="handleUploadFileChange"
+            :on-remove="handleUploadFileRemove"
+            accept=".html,.htm">
+            <el-button size="small" type="primary">选择文件</el-button>
+            <div slot="tip" class="el-upload__tip">仅支持 html、htm 文件，上传后可在列表中查看报告内容。</div>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <span slot="footer" class="dialog-footer">
+        <el-button size="small" @click="uploadDialogVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="uploading" @click="submitUploadReport">上传</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
@@ -97,7 +139,7 @@ import PageSection from '@/components/TestPlatform/common/PageSection'
 import { getPlanList } from '@/api/planApi'
 import { getProductList } from '@/api/productApi'
 import { getProjectDetail, getProjectList } from '@/api/projectApi'
-import { generateReport, getReportList } from '@/api/reportApi'
+import { deleteReport, generateReport, getReportList, uploadHtmlReport } from '@/api/reportApi'
 import {
   readLastProductProjectCache,
   saveLastProductProjectCache,
@@ -111,12 +153,27 @@ export default {
     return {
       loading: false,
       generating: false,
+      uploading: false,
+      uploadDialogVisible: false,
       projectId: this.$route.query.projectId || '',
       selectedProductId: '',
       selectedProjectId: this.$route.query.projectId ? Number(this.$route.query.projectId) : '',
       productOptions: [],
       projectOptions: [],
       planOptions: [],
+      uploadProjectOptions: [],
+      uploadPlanOptions: [],
+      uploadFileList: [],
+      uploadForm: {
+        productId: '',
+        projectId: '',
+        planId: '',
+        name: '',
+        file: null
+      },
+      uploadRules: {
+        file: [{ required: true, message: '请选择HTML文件', trigger: 'change' }]
+      },
       queryForm: {
         plan_id: this.$route.query.planId || ''
       },
@@ -296,9 +353,133 @@ export default {
         this.generating = false
       })
     },
+    openUploadDialog() {
+      this.uploadDialogVisible = true
+      this.uploadForm.productId = this.selectedProductId || ''
+      this.uploadForm.projectId = this.selectedProjectId || this.projectId || ''
+      this.uploadForm.planId = this.queryForm.plan_id || ''
+      this.uploadProjectOptions = this.projectOptions.slice()
+      this.uploadPlanOptions = this.planOptions.slice()
+      if (this.uploadForm.productId && this.uploadProjectOptions.length === 0) {
+        this.loadProjectOptionsByProduct(this.uploadForm.productId).then(() => {
+          this.uploadProjectOptions = this.projectOptions.slice()
+        })
+      }
+      if (this.uploadForm.projectId && this.uploadPlanOptions.length === 0) {
+        this.loadUploadPlanOptions(this.uploadForm.projectId)
+      }
+    },
+    handleUploadProductChange(val) {
+      this.uploadForm.projectId = ''
+      this.uploadForm.planId = ''
+      this.uploadProjectOptions = []
+      this.uploadPlanOptions = []
+      if (!val) return
+      getProjectList({ pageNo: 1, pageSize: 1000, status: 1, productId: val }).then(res => {
+        const data = (res && res.data) || res || {}
+        this.uploadProjectOptions = data.items || data.list || data.data || []
+      }).catch(() => {
+        this.uploadProjectOptions = []
+      })
+    },
+    handleUploadProjectChange(val) {
+      this.uploadForm.planId = ''
+      this.uploadPlanOptions = []
+      if (val) this.loadUploadPlanOptions(val)
+    },
+    loadUploadPlanOptions(projectId) {
+      return getPlanList(projectId, { pageNo: 1, pageSize: 1000 }).then(res => {
+        const data = (res && res.data) || res || {}
+        this.uploadPlanOptions = data.items || data.list || data.data || []
+      }).catch(() => {
+        this.uploadPlanOptions = []
+      })
+    },
+    handleUploadFileChange(file, fileList) {
+      const raw = file && file.raw
+      const name = (raw && raw.name) || file.name || ''
+      if (!/\.html?$/i.test(name)) {
+        this.$message.warning('仅支持上传 html、htm 文件')
+        this.uploadFileList = []
+        this.uploadForm.file = null
+        return
+      }
+      this.uploadFileList = fileList.slice(-1)
+      this.uploadForm.file = raw
+      if (!this.uploadForm.name) {
+        this.uploadForm.name = name.replace(/\.html?$/i, '')
+      }
+      if (this.$refs.uploadForm) this.$refs.uploadForm.clearValidate('file')
+    },
+    handleUploadFileRemove() {
+      this.uploadFileList = []
+      this.uploadForm.file = null
+    },
+    submitUploadReport() {
+      if (!this.uploadForm.productId) {
+        this.$message.warning('请先选择产品名称')
+        return
+      }
+      if (!this.uploadForm.projectId) {
+        this.$message.warning('请先选择项目名称')
+        return
+      }
+      if (!this.uploadForm.file) {
+        this.$message.warning('请选择HTML文件')
+        return
+      }
+      const formData = new FormData()
+      formData.append('productId', this.uploadForm.productId)
+      formData.append('projectId', this.uploadForm.projectId)
+      if (this.uploadForm.planId) formData.append('planId', this.uploadForm.planId)
+      if (this.uploadForm.name) formData.append('name', this.uploadForm.name)
+      formData.append('file', this.uploadForm.file)
+      this.uploading = true
+      uploadHtmlReport(formData).then(() => {
+        this.$message.success('HTML报告上传成功')
+        this.uploadDialogVisible = false
+        this.selectedProductId = this.uploadForm.productId
+        this.selectedProjectId = this.uploadForm.projectId
+        this.projectId = this.uploadForm.projectId
+        this.queryForm.plan_id = this.uploadForm.planId || ''
+        this.pageNo = 1
+        this.fetchList()
+      }).finally(() => {
+        this.uploading = false
+      })
+    },
+    resetUploadForm() {
+      this.uploadForm = { productId: '', projectId: '', planId: '', name: '', file: null }
+      this.uploadProjectOptions = []
+      this.uploadPlanOptions = []
+      this.uploadFileList = []
+      if (this.$refs.htmlUpload) this.$refs.htmlUpload.clearFiles()
+    },
+    handleDelete(row) {
+      if (!row || !row.id) return
+      const reportName = row.name || '该报告'
+      this.$confirm(`确定删除“${reportName}”吗？`, '删除报告', {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        this.loading = true
+        return deleteReport({ reportId: row.id, id: row.id }).then(() => {
+          this.$message.success('删除成功')
+          if (this.tableData.length === 1 && this.pageNo > 1) {
+            this.pageNo -= 1
+          }
+          this.fetchList()
+        }).catch(() => {
+          this.loading = false
+        })
+      }).catch(() => {})
+    },
     goViewer(row) {
+      const summary = row.summary || {}
+      const isUploadedHtml = summary.source === 'upload_html' || row.file_url || row.fileUrl
       const type = String(row.report_type || row.type || '').toLowerCase()
-      const isAuto = type.indexOf('auto') > -1 || type.indexOf('automation') > -1 || type.indexOf('自动') > -1 || Number(row.report_type || row.type) === 2
+      const isAuto = !isUploadedHtml && (type.indexOf('auto') > -1 || type.indexOf('automation') > -1 || type.indexOf('自动') > -1 || Number(row.report_type || row.type) === 2)
       if (isAuto) {
         const externalUrl = row.external_url || row.externalUrl || row.report_url || row.reportUrl || 'https://example.com/automation-report'
         window.open(externalUrl, '_blank')
@@ -333,14 +514,16 @@ export default {
     },
     formatPlanName(row) {
       if (!row) return '-'
-      const directName = row.plan_name || row.planName || row.name || ''
+      const directName = row.plan_name || row.planName || ''
       if (directName) return directName
       const planId = row.plan_id || row.planId
       if (!planId) return '-'
       const matched = (this.planOptions || []).find(item => String(item.id) === String(planId))
       return (matched && matched.name) || String(planId)
     },
-    formatReportType(value) {
+    formatReportType(value, row) {
+      const summary = (row && row.summary) || {}
+      if (summary.source === 'upload_html' || (row && (row.file_url || row.fileUrl))) return 'HTML报告'
       const map = {
         manual: '手工',
         auto: '自动化',
@@ -388,5 +571,9 @@ export default {
 <style scoped>
 .page-wrap {
   padding: 20px;
+}
+
+.danger-action {
+  color: #F56C6C;
 }
 </style>

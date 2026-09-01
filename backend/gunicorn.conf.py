@@ -1,15 +1,27 @@
-# encoding: UTF-8
-from const import BE_URL
+﻿# encoding: UTF-8
+"""
+Gunicorn 配置文件（FastAPI + Uvicorn Worker）
+"""
+import os
 
-workers = 1    # 定义同时开启的处理请求的进程数量，根据网站流量适当调整
-bind = BE_URL
-threads = 2    # 多线程，2个暂时就够用
+# 从环境变量获取绑定地址，默认 0.0.0.0:5010
+bind = os.environ.get('BE_URL', '0.0.0.0:5010')
 
-debug = False
-reload = False
-loglevel = 'debug'
-pidfile = "logs/gunicorn.pid"
-accesslog = "-"  # 输出到容器标准输出，便于 docker logs 查看
-errorlog = "-"  # 输出到容器标准错误，便于 docker logs 查看
-timeout = 300   # 每个接口的超时时间
-daemon = False  # 容器内以前台方式运行，避免主进程退出
+# Worker 配置
+workers = 2  # 建议: CPU核心数 * 2 + 1
+worker_class = 'uvicorn.workers.UvicornWorker'
+
+# 超时配置
+timeout = 300  # 每个请求的最大处理时间
+
+# 日志配置
+loglevel = 'info'
+accesslog = '-'  # 输出到标准输出
+errorlog = '-'   # 输出到标准错误
+
+# 进程配置
+daemon = False  # 容器内前台运行
+pidfile = 'logs/gunicorn.pid'
+
+# 预加载应用
+preload_app = True

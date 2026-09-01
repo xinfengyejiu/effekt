@@ -1,8 +1,8 @@
--- 性能测试菜单与权限初始化脚本
+﻿-- 性能测试菜单与权限初始化脚本
 
 BEGIN;
 
-INSERT INTO public.permission (code, name, module, action, description, status, is_delete, created_time, updated_time) VALUES
+INSERT INTO public.sys_permission (code, name, module, action, description, status, is_delete, created_time, updated_time) VALUES
 ('performance:scenario:list', '性能场景列表', 'performance', 'scenario:list', '查看性能场景列表', 1, 0, NOW(), NOW()),
 ('performance:scenario:create', '性能场景新增', 'performance', 'scenario:create', '新增性能场景', 1, 0, NOW(), NOW()),
 ('performance:scenario:update', '性能场景编辑', 'performance', 'scenario:update', '编辑性能场景', 1, 0, NOW(), NOW()),
@@ -34,13 +34,13 @@ INSERT INTO public.permission (code, name, module, action, description, status, 
 ('performance:jenkins:callback', '性能Jenkins回调', 'performance', 'jenkins:callback', 'Jenkins回传性能测试执行结果', 1, 0, NOW(), NOW())
 ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, module=EXCLUDED.module, action=EXCLUDED.action, description=EXCLUDED.description, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 VALUES (0, '性能测试', 'performance_test', 1, '/performance', 'performance/index', 'el-icon-data-line', 'performance:scenario:list', 20, 1, 1, 0, NOW(), NOW())
 ON CONFLICT (code) DO UPDATE SET parent_id=0, name=EXCLUDED.name, type=EXCLUDED.type, path=EXCLUDED.path, component=EXCLUDED.component, icon=EXCLUDED.icon, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT p.id, v.name, v.code, v.type, v.path, v.component, v.icon, v.permission_code, v.sort, v.visible, 1, 0, NOW(), NOW()
-FROM public.menu p
+FROM public.sys_menu p
 CROSS JOIN (VALUES
     ('性能场景', 'performance_scenario', 2, '/performance/scenarios', 'performance/scenarios', 'el-icon-document', 'performance:scenario:list', 1, 1),
     ('发起压测', 'performance_run_wizard', 2, '/performance/run-wizard', 'performance/run-wizard', 'el-icon-video-play', 'performance:run:execute', 2, 1),
@@ -51,9 +51,9 @@ CROSS JOIN (VALUES
 WHERE p.code = 'performance_test'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, path=EXCLUDED.path, component=EXCLUDED.component, icon=EXCLUDED.icon, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=EXCLUDED.visible, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('新增场景', 'performance_scenario_create', 'performance:scenario:create', 1),
     ('编辑场景', 'performance_scenario_update', 'performance:scenario:update', 2),
@@ -72,9 +72,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'performance_scenario'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('新增测试机', 'performance_machine_create', 'performance:machine:save', 1),
     ('编辑测试机', 'performance_machine_update', 'performance:machine:save', 2),
@@ -83,9 +83,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'performance_test_machine'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('查看执行详情', 'performance_run_detail', 'performance:run:detail', 1),
     ('停止压测', 'performance_run_stop_button', 'performance:run:stop', 2),
@@ -94,9 +94,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'performance_run_list'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('查看报告详情', 'performance_report_detail', 'performance:report:detail', 1),
     ('AI分析报告', 'performance_report_ai_button', 'performance:report:ai', 2)
@@ -104,9 +104,9 @@ CROSS JOIN (VALUES
 WHERE m.code = 'performance_report'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
+INSERT INTO public.sys_menu (parent_id, name, code, type, path, component, icon, permission_code, sort, visible, status, is_delete, created_time, updated_time)
 SELECT m.id, v.name, v.code, 3, '', '', '', v.permission_code, v.sort, 1, 1, 0, NOW(), NOW()
-FROM public.menu m
+FROM public.sys_menu m
 CROSS JOIN (VALUES
     ('查看性能脚本', 'performance_script_list_button', 'performance:script:list', 1),
     ('查看执行配置', 'performance_config_list_button', 'performance:config:list', 2),
@@ -118,37 +118,38 @@ CROSS JOIN (VALUES
 WHERE m.code = 'performance_scenario'
 ON CONFLICT (code) DO UPDATE SET parent_id=EXCLUDED.parent_id, name=EXCLUDED.name, type=EXCLUDED.type, permission_code=EXCLUDED.permission_code, sort=EXCLUDED.sort, visible=1, status=1, is_delete=0, updated_time=NOW();
 
-INSERT INTO public.role_permission (role_id, permission_id, is_delete, created_time)
+INSERT INTO public.sys_role_permission (role_id, permission_id, is_delete, created_time)
 SELECT r.id, p.id, 0, NOW()
-FROM public.role r
-CROSS JOIN public.permission p
+FROM public.sys_role r
+CROSS JOIN public.sys_permission p
 WHERE r.status = 1
   AND r.is_delete = 0
   AND p.module = 'performance'
   AND p.is_delete = 0
   AND NOT EXISTS (
-      SELECT 1 FROM public.role_permission rp
+      SELECT 1 FROM public.sys_role_permission rp
       WHERE rp.role_id = r.id
         AND rp.permission_id = p.id
         AND rp.is_delete = 0
   );
 
-INSERT INTO public.role_menu (role_id, menu_id, is_delete, created_time)
+INSERT INTO public.sys_role_menu (role_id, menu_id, is_delete, created_time)
 SELECT r.id, m.id, 0, NOW()
-FROM public.role r
-CROSS JOIN public.menu m
+FROM public.sys_role r
+CROSS JOIN public.sys_menu m
 WHERE r.status = 1
   AND r.is_delete = 0
   AND (m.code = 'performance_test' OR m.code LIKE 'performance_%')
   AND m.is_delete = 0
   AND NOT EXISTS (
-      SELECT 1 FROM public.role_menu rm
+      SELECT 1 FROM public.sys_role_menu rm
       WHERE rm.role_id = r.id
         AND rm.menu_id = m.id
         AND rm.is_delete = 0
   );
 
-SELECT setval(pg_get_serial_sequence('public.permission', 'id'), COALESCE((SELECT MAX(id) FROM public.permission), 1));
-SELECT setval(pg_get_serial_sequence('public.menu', 'id'), COALESCE((SELECT MAX(id) FROM public.menu), 1));
+SELECT setval(pg_get_serial_sequence('public.sys_permission', 'id'), COALESCE((SELECT MAX(id) FROM public.sys_permission), 1));
+SELECT setval(pg_get_serial_sequence('public.sys_menu', 'id'), COALESCE((SELECT MAX(id) FROM public.sys_menu), 1));
 
 COMMIT;
+

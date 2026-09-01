@@ -1,8 +1,0 @@
-node_modules
-dist
-.git
-.gitignore
-Dockerfile
-Jenkins.txt
-npm-debug.log*
-yarn-error.log*

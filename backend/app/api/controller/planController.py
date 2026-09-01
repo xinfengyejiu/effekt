@@ -1,5 +1,6 @@
 # encoding: UTF-8
 from datetime import datetime
+import json
 
 from .baseCrudController import BaseCrudController
 from ..model.planModel import PlanCase, TestPlan, TestRound
@@ -157,6 +158,156 @@ class PlanController(BaseCrudController):
         PlanService.refresh_plan_status(self.session, plan_id)
         
         return result
+
+    def plan_case_ai_execute(self):
+        from ..service.aiService import AIService
+
+        plan_id = self._get(self.req_data, 'planId', 'plan_id')
+        plan_case_id = self._get(self.req_data, 'planCaseId', 'id')
+        if not plan_id:
+            return {}, 'planId 为必传参数'
+
+        plan = PlanService.get_by_id(self.session, TestPlan, plan_id)
+        if not plan:
+            return {}, '未查询到对应计划！'
+        test_url = (plan.description or '').strip()
+        if not test_url:
+            return {}, '计划描述为空，请在计划描述中填写本次测试地址 URL'
+
+        filters = [PlanCase.plan_id == int(plan_id)]
+        if plan_case_id:
+            filters.append(PlanCase.id == int(plan_case_id))
+        else:
+            filters.append(PlanCase.status.in_([0, 2, 3]))
+        plan_cases = self.session.query(PlanCase).filter(*filters).order_by(PlanCase.id.asc()).all()
+        if not plan_cases:
+            return {'total': 0, 'passed': 0, 'failed': 0, 'blocked': 0, 'results': []}, ''
+
+        case_ids = [item.case_id for item in plan_cases if item.case_id]
+        case_map = {}
+        module_map = {}
+        if case_ids:
+            cases = self.session.query(TestCase).filter(TestCase.id.in_(case_ids), TestCase.is_delete == 0).all()
+            case_map = {case.id: case for case in cases}
+            module_ids = [case.module_id for case in cases if case.module_id]
+            if module_ids:
+                modules = self.session.query(Module).filter(Module.id.in_(module_ids), Module.is_delete == 0).all()
+                module_map = {module.id: module for module in modules}
+
+        results = []
+        for plan_case in plan_cases:
+            case = case_map.get(plan_case.case_id)
+            if not case:
+                actual_result = 'AI执行阻塞：未找到关联用例，无法获取用例步骤和预期结果'
+                PlanService.update_by_id(self.session, PlanCase, plan_case.id, {
+                    'status': 3,
+                    'actual_result': actual_result,
+                    'defect_links': [],
+                    'attachments': [],
+                    'executed_time': datetime.now(),
+                    'execution_duration': None
+                }, soft_delete=False)
+                results.append({
+                    'planCaseId': plan_case.id,
+                    'caseId': plan_case.case_id,
+                    'caseKey': '',
+                    'caseTitle': '',
+                    'status': 3,
+                    'statusLabel': '阻塞',
+                    'actualResult': actual_result,
+                    'reason': '未找到关联用例'
+                })
+                continue
+            module = module_map.get(case.module_id)
+            steps = self._normalize_case_text(case.steps)
+            expected_results = self._normalize_case_text(case.expected_results)
+            ai_result, err_msg = AIService.execute_test_case_by_ai({
+                'testUrl': test_url,
+                'planName': plan.name,
+                'planVersion': plan.version,
+                'caseKey': case.case_key,
+                'caseTitle': case.title,
+                'modulePath': module.path if module else '',
+                'moduleName': module.name if module else '',
+                'preconditions': self._normalize_case_text(case.preconditions),
+                'steps': steps,
+                'expectedResults': expected_results
+            })
+            if err_msg:
+                status = 3
+                actual_result = f'AI执行失败：{err_msg}'
+                reason = err_msg
+            else:
+                status = self._normalize_ai_execute_status(ai_result)
+                actual_result = self._format_ai_execute_result(ai_result)
+                reason = ai_result.get('reason', '')
+            PlanService.update_by_id(self.session, PlanCase, plan_case.id, {
+                'status': status,
+                'actual_result': actual_result,
+                'defect_links': [],
+                'attachments': [],
+                'executed_time': datetime.now(),
+                'execution_duration': None
+            }, soft_delete=False)
+            results.append({
+                'planCaseId': plan_case.id,
+                'caseId': plan_case.case_id,
+                'caseKey': case.case_key,
+                'caseTitle': case.title,
+                'status': status,
+                'statusLabel': self._execute_status_label(status),
+                'actualResult': actual_result,
+                'reason': reason
+            })
+
+        PlanService.refresh_plan_status(self.session, plan_id)
+        return {
+            'total': len(results),
+            'passed': len([item for item in results if item.get('status') == 1]),
+            'failed': len([item for item in results if item.get('status') == 2]),
+            'blocked': len([item for item in results if item.get('status') == 3]),
+            'results': results
+        }, ''
+
+    @staticmethod
+    def _normalize_case_text(value):
+        if value is None:
+            return ''
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        text = str(value)
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, (dict, list)):
+                return json.dumps(parsed, ensure_ascii=False)
+        except Exception:
+            pass
+        return text
+
+    @staticmethod
+    def _normalize_ai_execute_status(ai_result):
+        status = str((ai_result or {}).get('status') or '').lower()
+        if status in ('pass', 'passed', 'success', '1', '通过'):
+            return 1
+        if status in ('fail', 'failed', 'failure', '2', '失败'):
+            return 2
+        return 3
+
+    @staticmethod
+    def _execute_status_label(status):
+        return {1: '通过', 2: '失败', 3: '阻塞'}.get(status, '待执行')
+
+    @staticmethod
+    def _format_ai_execute_result(ai_result):
+        ai_result = ai_result or {}
+        lines = [f"AI执行结论：{PlanController._execute_status_label(PlanController._normalize_ai_execute_status(ai_result))}"]
+        for label, key in [('实际结果', 'actualResult'), ('失败原因', 'reason'), ('执行过程', 'evidence'), ('建议', 'suggestion')]:
+            value = ai_result.get(key)
+            if value:
+                if isinstance(value, (dict, list)):
+                    value = json.dumps(value, ensure_ascii=False)
+                lines.append(f'{label}：{value}')
+        return '\n'.join(lines)
 
     def progress(self):
         """查询计划进度统计。"""

@@ -71,7 +71,7 @@
                 <el-col :span="8">
                   <div class="meta-field">
                     <div class="meta-label">关联用例</div>
-                    <div class="meta-value">{{ detail.case_id || detail.caseId || '-' }}</div>
+                    <div class="meta-value">{{ caseDisplay }}</div>
                   </div>
                 </el-col>
                 <el-col :span="8">
@@ -561,6 +561,12 @@ export default {
       if (id !== undefined && id !== null && id !== '') return String(id)
       return '-'
     },
+    caseDisplay() {
+      const d = this.detail || {}
+      const key = d.case_key || d.caseKey
+      if (key) return key
+      return '-'
+    },
     commentList() {
       const c = this.detail.comments
       return Array.isArray(c) ? c : []
@@ -1048,7 +1054,7 @@ export default {
       this.$router.push({ path: '/bug/list' })
     },
     goEdit() {
-      this.$router.push({ path: '/bug/edit', query: { bugId: this.bugId } })
+      this.$router.push({ path: '/bug/edit', query: { bugId: this.bugId, from: 'detail' } })
     }
   },
 }
@@ -1120,7 +1126,7 @@ export default {
 }
 .bug-status-new {
   background: #ecf5ff;
-  color: #409eff;
+  color: #1e40af;
 }
 .bug-status-pending {
   background: #fdf6ec;
@@ -1155,7 +1161,7 @@ export default {
 }
 .bug-key {
   font-weight: 600;
-  color: #409eff;
+  color: #1e40af;
   margin-right: 4px;
 }
 .bug-title {
@@ -1273,7 +1279,7 @@ export default {
 }
 .feed-pill-tab.is-active {
   background: #ecf5ff;
-  color: #409eff;
+  color: #1e40af;
   font-weight: 500;
 }
 .feed-tab-divider {

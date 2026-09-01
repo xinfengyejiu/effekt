@@ -1,6 +1,7 @@
 # encoding: UTF-8
 import os
 import json
+import re
 
 from sqlalchemy import and_, or_
 from flask import g
@@ -10,6 +11,7 @@ from ..model.caseModel import CaseReview, CaseSnapshot, Module, TestCase
 from ..model.projectModel import Project
 from ..model.userModel import User
 from ..service.caseService import CaseService
+from ..dao.caseDao import CaseDao
 from logger import logger
 
 
@@ -76,7 +78,7 @@ class CaseController(BaseCrudController):
         return CaseService.delete_by_id(self.session, Module, module_id)
 
     def case_list(self):
-        """分页查询用例列表，支持项目名称、用例标题、优先级、类型、状态、是否自动化、标签过滤。"""
+        """分页查询用例列表，支持项目名称、用例标题、用例编号、优先级、类型、状态、是否自动化、标签过滤。"""
         filters = []
         
         project_name = self._get(self.req_data, 'projectName')
@@ -86,6 +88,10 @@ class CaseController(BaseCrudController):
         project_id = self._get(self.req_data, 'projectId')
         if project_id:
             filters.append(TestCase.project_id == int(project_id))
+
+        case_keys = self._parse_case_keys(self.req_data)
+        if case_keys:
+            filters.append(TestCase.case_key.in_(case_keys))
         
         module_name = self._get(self.req_data, 'moduleName', 'module_name')
         if module_name:
@@ -169,6 +175,28 @@ class CaseController(BaseCrudController):
         
         return {'list': result_list, 'total': total}
 
+    @staticmethod
+    def _parse_case_keys(req_data):
+        raw_values = []
+        for key in ('caseKey', 'case_key', 'caseKeys', 'case_keys', 'caseKeyList', 'case_key_list', 'caseKeys[]'):
+            if hasattr(req_data, 'getlist'):
+                raw_values.extend([item for item in req_data.getlist(key) if item not in (None, '')])
+            value = req_data.get(key) if hasattr(req_data, 'get') else None
+            if value not in (None, ''):
+                raw_values.append(value)
+
+        case_keys = []
+        for raw in raw_values:
+            if isinstance(raw, (list, tuple, set)):
+                candidates = raw
+            else:
+                candidates = re.split(r'[\s,，;；]+', str(raw))
+            for item in candidates:
+                value = str(item or '').strip()
+                if value and value not in case_keys:
+                    case_keys.append(value)
+        return case_keys
+
     def case_detail(self):
         case_id = self._get(self.req_data, 'caseId', 'id')
         if not case_id:
@@ -232,6 +260,18 @@ class CaseController(BaseCrudController):
                 steps_value = ''
             update_info['steps'] = steps_value
         return CaseService.update_by_id(self.session, TestCase, case_id, update_info)
+
+    def case_copy(self):
+        """复制用例：基于源用例生成新用例（新编号、新创建人）。"""
+        source_case_id = self._get(self.req_data, 'caseId', 'id', 'sourceCaseId')
+        if not source_case_id:
+            return 0, 'caseId 为必传参数'
+        from flask import g
+        user_id = getattr(g, 'current_user_id', None)
+        new_id, err_msg = CaseDao.copy_case(self.session, source_case_id, user_id)
+        if err_msg:
+            return 0, err_msg
+        return new_id, ''
 
     def case_delete(self):
         case_ids = self._get(self.req_data, 'caseIds', 'caseId', 'ids', 'id')
@@ -358,7 +398,92 @@ class CaseController(BaseCrudController):
         items, total = CaseService.list_by_filters(self.session, CaseReview, filters, self._get(self.req_data, 'pageNo', default=1), self._get(self.req_data, 'pageSize', default=20), CaseReview.created_time)
         return {'list': self.serialize_list(items), 'total': total}
 
-    def case_import(self, file_path, project_id):
+    def case_export(self, project_id, product_id=None):
+        """按导入模板格式导出项目全量用例"""
+        try:
+            from io import BytesIO
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        except ImportError:
+            return None, '', '请先安装 openpyxl 依赖'
+
+        if not project_id:
+            return None, '', 'projectId 为必传参数'
+
+        try:
+            project_id_int = int(project_id)
+            product_id_int = int(product_id) if product_id not in (None, '') else None
+        except (TypeError, ValueError):
+            return None, '', '产品或项目参数格式不正确'
+
+        project = self.session.query(Project).filter(Project.id == project_id_int, Project.is_delete == 0).first()
+        if not project:
+            return None, '', '项目不存在或已删除'
+        if product_id_int is not None and int(project.product_id or 0) != product_id_int:
+            return None, '', '项目不属于所选产品'
+
+        query = self.session.query(TestCase, Module.path.label('module_path'), Module.name.label('module_name')).\
+                join(Module, TestCase.module_id == Module.id, isouter=True).\
+                filter(TestCase.project_id == project_id_int)
+        if hasattr(TestCase, 'is_delete'):
+            query = query.filter(TestCase.is_delete == 0)
+        if hasattr(Module, 'is_delete'):
+            query = query.filter(or_(Module.is_delete == 0, Module.is_delete.is_(None)))
+        cases = query.order_by(TestCase.id.asc()).all()
+
+        wb = Workbook()
+        sheet = wb.active
+        sheet.title = '测试用例'
+        headers = ['所属模块', '用例标题', '前置条件', '步骤', '预期', '关键词', '优先级', '用例类型']
+        sheet.append(headers)
+
+        header_fill = PatternFill('solid', fgColor='D9EAF7')
+        header_font = Font(bold=True)
+        thin_side = Side(style='thin', color='D9E2EC')
+        cell_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        for cell in sheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = cell_border
+
+        priority_map = {0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3'}
+        case_type_map = {1: '功能', 2: '性能', 3: '安全', 4: '接口'}
+        for case, module_path, module_name in cases:
+            tags = case.tags or []
+            if isinstance(tags, str):
+                try:
+                    parsed_tags = json.loads(tags)
+                    tags = parsed_tags if isinstance(parsed_tags, list) else [tags]
+                except Exception:
+                    tags = [tags]
+            module_value = module_path or module_name or ''
+            sheet.append([
+                module_value,
+                case.title or '',
+                case.preconditions or '',
+                case.steps or '',
+                case.expected_results or '',
+                ','.join([str(tag) for tag in tags if tag not in (None, '')]),
+                priority_map.get(case.priority, case.priority if case.priority is not None else ''),
+                case_type_map.get(case.case_type, case.case_type if case.case_type is not None else '')
+            ])
+
+        column_widths = [28, 36, 32, 42, 42, 22, 12, 14]
+        for idx, width in enumerate(column_widths, start=1):
+            sheet.column_dimensions[chr(64 + idx)].width = width
+        for row in sheet.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = Alignment(vertical='top', wrap_text=True)
+                cell.border = cell_border
+
+        file_obj = BytesIO()
+        wb.save(file_obj)
+        file_obj.seek(0)
+        filename = f'{project.name or "测试用例"}-全量用例.xlsx'
+        return file_obj, filename, ''
+
+    def case_import(self, file_path, project_id, product_id=None):
         """批量导入用例"""
         try:
             from openpyxl import load_workbook
@@ -370,6 +495,18 @@ class CaseController(BaseCrudController):
         
         if not project_id:
             return 0, 'projectId 为必传参数'
+
+        try:
+            project_id_int = int(project_id)
+            product_id_int = int(product_id) if product_id not in (None, '') else None
+        except (TypeError, ValueError):
+            return 0, '产品或项目参数格式不正确'
+
+        project = self.session.query(Project).filter(Project.id == project_id_int, Project.is_delete == 0).first()
+        if not project:
+            return 0, '项目不存在或已删除'
+        if product_id_int is not None and int(project.product_id or 0) != product_id_int:
+            return 0, '项目不属于所选产品'
         
         wb = load_workbook(file_path)
         sheet = wb.active
@@ -385,10 +522,12 @@ class CaseController(BaseCrudController):
             if col not in headers:
                 return 0, f'缺少必要列: {col}'
         
-        module_name_to_id = {}
-        existing_modules = self.session.query(Module).filter(Module.project_id == int(project_id), Module.is_delete == 0).all()
+        module_path_to_id = {}
+        existing_modules = self.session.query(Module).filter(Module.project_id == project_id_int, Module.is_delete == 0).all()
         for module in existing_modules:
-            module_name_to_id[module.name] = module.id
+            module_path = module.path or ('/' + module.name if not module.parent_id else '')
+            if module_path:
+                module_path_to_id[module_path] = module.id
         
         success_count = 0
         fail_count = 0
@@ -414,21 +553,22 @@ class CaseController(BaseCrudController):
                 module_id = None
                 
                 for idx, module_name in enumerate(module_names):
-                    if module_name in module_name_to_id:
-                        parent_id = module_name_to_id[module_name]
+                    path_parts = module_names[:idx+1]
+                    module_path = '/' + '/'.join(path_parts)
+                    if module_path in module_path_to_id:
+                        parent_id = module_path_to_id[module_path]
                     else:
-                        path_parts = module_names[:idx+1]
-                        module_path = '/' + '/'.join(path_parts)
                         new_module = Module(
-                            project_id=int(project_id),
+                            project_id=project_id_int,
                             parent_id=parent_id,
                             name=module_name,
                             path=module_path,
+                            status=1,
                             is_delete=0
                         )
                         self.session.add(new_module)
                         self.session.flush()
-                        module_name_to_id[module_name] = new_module.id
+                        module_path_to_id[module_path] = new_module.id
                         parent_id = new_module.id
                 
                 module_id = parent_id
@@ -456,12 +596,12 @@ class CaseController(BaseCrudController):
                 
                 retry_count = 0
                 max_retries = 5
-                case_key = CaseService.next_case_key(self.session, project_id, module_id)
+                case_key = CaseService.next_case_key(self.session, project_id_int, module_id)
                 
                 while retry_count < max_retries:
                     try:
                         case = TestCase(
-                            project_id=int(project_id),
+                            project_id=project_id_int,
                             module_id=module_id,
                             case_key=case_key,
                             title=title,
@@ -484,7 +624,7 @@ class CaseController(BaseCrudController):
                     except Exception as e:
                         if 'duplicate key' in str(e).lower() or 'already exists' in str(e).lower():
                             logger.warning(f'case_import case_key冲突，重新生成：{case_key}, 错误：{str(e)}')
-                            case_key = CaseService.next_case_key(self.session, project_id)
+                            case_key = CaseService.next_case_key(self.session, project_id_int)
                             retry_count += 1
                         else:
                             raise

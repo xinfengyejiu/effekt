@@ -1,5 +1,6 @@
 # 创建连接相关
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 from urllib.parse import quote_plus as urlquote
 import time
@@ -47,11 +48,13 @@ class SqlSession:
                         self.sql_uri,
                         pool_size=10,
                         max_overflow=20,
-                        pool_recycle=180,  # 3分钟回收连接，避免连接被服务器断开
-                        pool_pre_ping=True,  # 获取连接前先验证有效性
-                        pool_timeout=15,  # 获取连接超时时间
+                        pool_recycle=120,
+                        pool_pre_ping=True,
+                        pool_timeout=15,
+                        pool_reset_on_return='rollback',
                         connect_args={
                             'connect_timeout': 5,
+                            'application_name': 'effekt-interface',
                             'options': '-c timezone=Asia/Shanghai',
                             'keepalives': 1,
                             'keepalives_idle': 30,
@@ -62,19 +65,16 @@ class SqlSession:
                     _ENGINE_CACHE[self.sql_uri] = engine
                 session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
                 _SESSION_FACTORY_CACHE[self.sql_uri] = session_factory
-            session = session_factory()
-            
-            # 验证连接是否有效
+            engine = session_factory.kw['bind']
             try:
-                session.execute(text("SELECT 1"))
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
             except Exception as e:
                 logger.warning(f"连接验证失败，尝试重新获取连接: {e}")
-                # 清除缓存的session factory，强制创建新连接
-                _SESSION_FACTORY_CACHE.pop(self.sql_uri, None)
-                _ENGINE_CACHE.pop(self.sql_uri, None)
+                self._dispose_engine()
                 raise
-            
-            return session
+
+            return session_factory()
         except Exception as e:
             if retry_count < MAX_RETRY_ATTEMPTS:
                 logger.warning(f"获取数据库连接失败，第 {retry_count + 1} 次重试: {e}")
@@ -83,6 +83,38 @@ class SqlSession:
             else:
                 logger.error(f"获取数据库连接失败，已重试 {MAX_RETRY_ATTEMPTS} 次: {e}")
                 raise
+
+    def _is_disconnect_error(self, error):
+        if isinstance(error, DBAPIError) and getattr(error, 'connection_invalidated', False):
+            return True
+        message = str(error).lower()
+        return any(text in message for text in (
+            'server closed the connection unexpectedly',
+            'connection already closed',
+            'connection not open',
+            'terminating connection',
+            'could not receive data from server',
+            'could not send data to server',
+            'software caused connection abort',
+            '10053',
+            'ssl connection has been closed unexpectedly'
+        ))
+
+    def _dispose_engine(self):
+        engine = _ENGINE_CACHE.pop(self.sql_uri, None)
+        _SESSION_FACTORY_CACHE.pop(self.sql_uri, None)
+        if engine is not None:
+            try:
+                engine.dispose()
+            except Exception as e:
+                logger.warning(f'释放数据库连接池失败: {e}')
+
+    def _handle_session_error(self, action, error):
+        if self._is_disconnect_error(error):
+            logger.warning(f'数据库连接在{action}时已断开，清理连接池: {error}')
+            self._dispose_engine()
+        else:
+            logger.warning(f'数据库会话{action}失败: {error}')
 
     def query(self, *args):
         return self._session.query(*args)
@@ -100,13 +132,27 @@ class SqlSession:
         self._session.flush()
 
     def commit(self):
-        self._session.commit()
+        try:
+            self._session.commit()
+        except Exception as e:
+            self._handle_session_error('提交', e)
+            raise
 
     def rollback(self):
-        self._session.rollback()
+        try:
+            self._session.rollback()
+        except Exception as e:
+            self._handle_session_error('回滚', e)
+            if not self._is_disconnect_error(e):
+                raise
 
     def close(self):
-        self._session.close()
+        try:
+            self._session.close()
+        except Exception as e:
+            self._handle_session_error('关闭', e)
+            if not self._is_disconnect_error(e):
+                raise
 
     def execute(self, sql):
         return self._session.execute(text(sql))
@@ -122,7 +168,10 @@ class SqlSession:
                 self.close()
         except Exception as e:
             logger.warning(e)
-            self._session.rollback()
+            try:
+                self.rollback()
+            except Exception as rollback_err:
+                logger.warning(f'事务回滚失败: {rollback_err}')
             return e
 
     @property

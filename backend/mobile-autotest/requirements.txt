@@ -1,0 +1,3 @@
+﻿pytest>=7,<9
+uiautomator2==3.7.0
+allure-pytest>=2.13,<3

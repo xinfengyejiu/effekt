@@ -8,7 +8,7 @@ Base.to_dict = to_dict
 
 
 class User(Base):
-    __tablename__ = 'user'
+    __tablename__ = 'sys_user'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
     username = Column(String(64), unique=True, nullable=False, comment='登录用户名')
     real_name = Column(String(64), comment='真实姓名')
@@ -25,7 +25,7 @@ class User(Base):
 
 
 class UserRole(Base):
-    __tablename__ = 'user_role'
+    __tablename__ = 'sys_user_role'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
     user_id = Column(BigInteger, nullable=False, comment='用户id')
     role_id = Column(BigInteger, nullable=False, comment='角色id')

@@ -310,5 +310,5 @@ export default {
 .performance-page .pager-wrap { margin-top: 16px; text-align: right; }
 .dialog-title-line { margin-bottom: 12px; color: #606266; }
 .action-line { margin-top: 10px; }
-.plan-preview { padding: 12px; overflow: auto; max-height: 220px; background: #0f172a; color: #dbeafe; border-radius: 4px; }
+.plan-preview { padding: 12px; overflow: auto; max-height: 220px; background: #1e293b; color: #dbeafe; border-radius: 4px; }
 </style>

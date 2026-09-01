@@ -3,15 +3,11 @@
   right: 0;
   top: 0;
   bottom: 0;
-  /*margin: auto;*/
   width: 100%;
   height: 100%;
   position: absolute;
   background-repeat: no-repeat;
   background-size: cover;
-
-  background-image: url("https://t4.chei.com.cn/account/images/account/bg.jpg");
-  /*background-image: url("../../src/assets/loginbackgroud.png");*/
 }
 .model {
   padding: 50px 0;
@@ -42,9 +38,6 @@
 .enter-btn {
   border: 1px solid #248992;
   background: #2eafbb;
-  /*height: 50px;*/
-  /*line-height: 50px;*/
-  /*border-radius: 4px;*/
   margin-top: 2%;
   font-size: 18px;
   color: #fff;

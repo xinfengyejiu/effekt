@@ -46,7 +46,12 @@ class BugDao(object):
             query = query.filter(model_cls.is_delete == 0)
         total = query.count()
         if order_column is not None:
-            query = query.order_by(order_column.asc() if asc else order_column.desc())
+            order_expr = order_column.asc() if asc else order_column.desc()
+            if hasattr(model_cls, 'id'):
+                id_order_expr = model_cls.id.asc() if asc else model_cls.id.desc()
+                query = query.order_by(order_expr, id_order_expr)
+            else:
+                query = query.order_by(order_expr)
         rets = query.offset((int(page) - 1) * int(limit)).limit(int(limit)).all()
         return rets, total
 

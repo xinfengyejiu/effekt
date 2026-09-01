@@ -176,11 +176,35 @@ class ProjectController(BaseCrudController):
             return 0, 'user_ids 必须为数组'
         if not user_ids:
             return 0, 'user_ids 不能为空'
-        user_role_map = UserService.get_user_roles_map(self.session, user_ids)
+        normalized_user_ids = []
+        seen_user_ids = set()
+        for user_id in user_ids:
+            if user_id in (None, ''):
+                return 0, 'user_ids 不能为空'
+            normalized_user_id = int(user_id)
+            if normalized_user_id in seen_user_ids:
+                return 0, f'用户 {normalized_user_id} 重复选择'
+            seen_user_ids.add(normalized_user_id)
+            normalized_user_ids.append(normalized_user_id)
+        existing_members = self.session.query(ProjectMember.user_id).filter(
+            ProjectMember.project_id == int(project_id),
+            ProjectMember.user_id.in_(normalized_user_ids)
+        ).all()
+        existing_user_ids = [item[0] for item in existing_members]
+        if existing_user_ids:
+            existing_user_map = UserService.get_user_info_map(self.session, existing_user_ids)
+            existing_user_names = [
+                existing_user_map.get(user_id, {}).get('real_name') or
+                existing_user_map.get(user_id, {}).get('username') or
+                str(user_id)
+                for user_id in existing_user_ids
+            ]
+            return 0, f'用户 {",".join(existing_user_names)} 已是项目成员'
+        user_role_map = UserService.get_user_roles_map(self.session, normalized_user_ids)
         role_name_map = RbacDao.get_role_name_map(self.session)
         name_to_project_role = {name: role_id for role_id, name in role_name_map.items()}
         created_ids = []
-        for user_id in user_ids:
+        for user_id in normalized_user_ids:
             role_info = user_role_map.get(user_id, {})
             role_names = role_info.get('role_names', [])
             project_role = 0

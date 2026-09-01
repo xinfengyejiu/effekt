@@ -11,7 +11,12 @@
         :closable="false"
         style="margin-bottom: 16px;">
       </el-alert>
-      <div class="report-html" v-html="report.content || ''"></div>
+      <iframe
+        v-if="report.content"
+        class="report-frame"
+        sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+        :srcdoc="report.content">
+      </iframe>
       <el-divider></el-divider>
       <json-viewer :value="report.summary || {}"></json-viewer>
     </page-section>
@@ -63,7 +68,11 @@ export default {
 .page-wrap {
   padding: 20px;
 }
-.report-html {
-  min-height: 200px;
+.report-frame {
+  width: 100%;
+  min-height: calc(100vh - 210px);
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  background: #fff;
 }
 </style>

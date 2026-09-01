@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>效能平台</title>
+    <title>QualiSync</title>
     <link rel="stylesheet" href="https://unpkg.com/wangeditor@4.7.15/dist/css/style.css" />
     <style>
       html {
@@ -14,29 +14,29 @@
         width: 100%;
         padding: 0;
         margin: 0;
-        background: #070b16;
-        color: #dbeafe;
+        background: #fafbfc;
+        color: #111827;
       }
-      body.theme-light {
-        background: #eef4ff;
-        color: #1f2937;
+      body.theme-dark {
+        background: #111827;
+        color: #d1d5db;
       }
     </style>
     <script>
       (function () {
-        var theme = 'dark';
+        var theme = 'light';
         try {
-          theme = localStorage.getItem('uiTheme') || 'dark';
+          theme = localStorage.getItem('uiTheme') || 'light';
         } catch (e) {}
-        document.documentElement.className = theme === 'light' ? 'theme-light' : 'theme-dark';
+        document.documentElement.className = theme === 'dark' ? 'theme-dark' : 'theme-light';
         document.addEventListener('DOMContentLoaded', function () {
           document.body.classList.remove('theme-dark', 'theme-light');
-          document.body.classList.add(theme === 'light' ? 'theme-light' : 'theme-dark');
+          document.body.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light');
         });
       })();
     </script>
   </head>
-  <body class="theme-dark">
+  <body class="theme-light">
     <div id="app"></div>
     <!-- built files will be auto injected -->
   </body>

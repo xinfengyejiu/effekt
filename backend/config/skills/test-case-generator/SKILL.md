@@ -37,10 +37,55 @@ If the user only provides rough requirements, continue with explicit assumptions
 - One atomic scenario maps to one test case; do not compress multiple independent rules, validations, states, or exception branches into one large case.
 - Test case count must equal atomic scenario count in the final output.
 - Test case order must follow the module order and business flow order.
+- Only generate modules for testable business functions, backend operations, user flows, acceptance criteria, non-functional requirements, or explicit business rules. Do not generate test cases or modules for document metadata/background-only sections such as 文档说明、文档目的、资料来源、产品定位、用户角色说明、版本规划、待完善事项清单、风险与注意事项、附录, unless they contain explicit testable behavior.
+- Functional modules must strictly follow the PRD numbering hierarchy for upper levels after non-testable metadata sections are excluded. First-level modules follow PRD first-level testable sections; second-level modules follow child numbered sections under each first-level section.
+- Use `一级模块/二级模块/三级模块/四级模块` to carry PRD numbered sections and analyzed lower-level functional structure. Third-level and fourth-level modules must be filled from actual analysis results when the PRD has shallow numbering, using child headings, tables, feature groups, business rules, and flow nodes.
 - Test case names must directly describe the atomic scenario, including normal, exception, boundary, permission, state, data, or integration context.
 - Include exception, boundary, UI, permission, performance, compatibility, or security tests when the requirement explicitly supports them or when business risk clearly justifies them; uncertain details must be marked as open questions or “待确认”.
 - Every step must be executable and every expected result must be verifiable.
 - Prefer detailed coverage over overly terse output. For each explicit requirement point, identify all applicable normal, exception, boundary, data validation, state transition, permission, UI feedback, and persistence scenarios.
+
+## PRD Numbering Module Hierarchy
+
+When generating cases for platform import, design the module hierarchy strictly from the PRD's numbered structure before writing test cases.
+
+### Numbering-to-module rules
+
+- First-level modules must exactly follow the PRD's first-level numbered sections. If the PRD has 5 first-level sections, generate exactly 5 first-level modules.
+- Second-level modules must follow the child numbered sections under each first-level section. If section 1 has 7 child sections, create 7 second-level modules under the first first-level module.
+- Continue mapping lower numbered sections into third-level and fourth-level modules when the PRD provides that structure.
+- The module path may use up to four levels: `一级模块/二级模块/三级模块/四级模块`.
+- Do not create additional first-level modules from pages, buttons, entry points, popups, fields, status values, exception states, or isolated operations when they do not correspond to PRD first-level numbering.
+
+### Handling unnumbered or shallow PRDs
+
+- If the PRD has no explicit numbering, first infer an implicit numbering hierarchy before generating cases.
+- Infer implicit first-level modules from top-level headings, table-of-content entries, large functional sections, or repeated major topic blocks.
+- Infer second-level to fourth-level modules from child headings, list indentation, table sections, feature groups, user flows, or semantically subordinate paragraphs.
+- If the PRD has clear headings but no explicit numbering, treat the inferred top-level headings as first-level modules and child headings as lower-level modules.
+- If a PRD section contains many atomic scenarios but no lower-level headings, keep them under the closest inferred module and put the scenario difference in the test case title.
+- If the PRD has more than four heading levels, preserve the first four meaningful levels and move deeper detail into the test case title.
+- Keep naming consistent with the PRD headings. Do not invent synonyms or merge numbered sections unless the PRD itself indicates they are the same scope.
+
+### Module path format
+
+- `module_name` / `所属模块` must use `一级模块/二级模块/三级模块/四级模块` when the PRD supports it.
+- The path should have at most four levels.
+- Use the PRD numbering only to determine hierarchy. Module names should use the title text of each numbered heading as much as possible, without adding the numeric prefix unless the title itself requires it.
+- Each level should correspond to the nearest PRD numbered heading or explicit heading title.
+
+Examples of acceptable module paths:
+
+- `账号登录与访问权限/登录认证/账号密码登录/异常密码校验`
+- `搜索与多语言/搜索结果/多语言检索/无结果提示`
+- `社区首页与内容发现/推荐内容/信息流展示/分页加载`
+
+Avoid these patterns:
+
+- PRD has first-level sections `1` to `5`, but generated first-level modules exceed 5.
+- Creating modules for non-testable metadata/background-only headings such as `文档说明/资料来源`, `文档说明/文档目的`, `附录/字段说明`, or `风险与注意事项` when they only describe documentation context.
+- Section `1` has 7 child numbered testable sections, but generated second-level modules under section `1` do not match those 7 child sections.
+- Using page names, dialog names, button names, field names, or single operations as first-level modules when they are not PRD first-level headings.
 
 ## Stage 1: 需求分析与测试点识别
 
@@ -183,7 +228,7 @@ After the count section, generate test cases using this JSON shape:
 
 - ID should be stable and ordered, such as `TC-001`, `TC-002`, or the user's requested format.
 - 用例名称 must exactly match the test point name.
-- 所属模块 must match the functional module.
+- 所属模块 must match the PRD numbering hierarchy and actual analysis results. Prefer `一级模块/二级模块/三级模块/四级模块`, with no more than four levels. Use PRD first-level and second-level numbering for upper levels; when third-level or fourth-level numbering is absent, derive lower levels from child headings, table feature items, business rules, acceptance rows, operation flows, and meaningful functional subdivisions. Use each numbered heading's title text or analyzed functional point as the module name as much as possible, and do not create first-level modules beyond the PRD's first-level headings.
 - 前置条件 must come from requirements or clearly stated assumptions.
 - 步骤描述 must use newline-separated concrete operations.
 - 预期结果 must use newline-separated concrete assertions.

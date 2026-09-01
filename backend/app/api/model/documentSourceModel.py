@@ -14,7 +14,7 @@ class DocumentSource(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
     product_id = Column(BigInteger, nullable=False, comment='产品ID')
     project_id = Column(BigInteger, nullable=False, comment='项目ID')
-    type = Column(SmallInteger, default=1, comment='类型：1-PDF文件，2-飞书链接')
+    type = Column(SmallInteger, default=1, comment='类型：1-PDF文件，2-飞书链接，3-Excel文件(xlsx/xls)，4-Markdown文件(md/markdown)')
     source = Column(String(512), nullable=False, comment='文件路径或飞书链接')
     content = Column(Text, comment='解析后的文本内容（缓存）')
     version = Column(Integer, default=1, comment='版本号')

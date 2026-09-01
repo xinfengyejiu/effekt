@@ -1,5 +1,9 @@
 import request from '@/utils/request'
 
+function download(url, params) {
+  return request({ url, method: 'get', params: params || {}, responseType: 'blob', timeout: 120000 })
+}
+
 export function getProjectList(params) {
   return request({
     url: '/project/list',
@@ -138,4 +142,57 @@ export function sendProjectHookMessage(data) {
     method: 'post',
     data: data || {}
   })
+}
+
+export function getProjectCodePrdConfig(params) {
+  return request({
+    url: '/project/code-prd/config',
+    method: 'get',
+    params: params || {}
+  })
+}
+
+export function saveProjectCodePrdConfig(data) {
+  return request({
+    url: '/project/code-prd/config/save',
+    method: 'post',
+    data: data || {}
+  })
+}
+
+export function getProjectCodePrdBranches(params) {
+  return request({
+    url: '/project/code-prd/branches',
+    method: 'get',
+    params: params || {}
+  })
+}
+
+export function getProjectCodePrdList(params) {
+  return request({
+    url: '/project/code-prd/list',
+    method: 'get',
+    params: Object.assign({ pageNo: 1, pageSize: 10 }, params || {})
+  })
+}
+
+export function getProjectCodePrdDetail(params) {
+  return request({
+    url: '/project/code-prd/detail',
+    method: 'get',
+    params: params || {}
+  })
+}
+
+export function generateProjectCodePrd(data) {
+  return request({
+    url: '/project/code-prd/generate',
+    method: 'post',
+    data: data || {},
+    timeout: 360000
+  })
+}
+
+export function exportProjectCodePrdDocx(params) {
+  return download('/project/code-prd/export-docx', params)
 }

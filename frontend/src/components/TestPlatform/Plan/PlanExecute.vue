@@ -14,6 +14,7 @@
           </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="fetchPlanCases">刷新</el-button>
+            <el-button type="success" :loading="aiExecuting" @click="handleAiExecute()">AI执行</el-button>
           </el-form-item>
         </el-form>
         <div class="filter-toolbar-actions">
@@ -40,9 +41,10 @@
             <el-tag size="mini" :type="formatExecuteStatusTag(scope.row.status)">{{ scope.row.statusLabel }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="150">
           <template slot-scope="scope">
             <el-button type="text" @click="openExecuteDialog(scope.row)">执行</el-button>
+            <el-button type="text" :loading="aiExecutingCaseId === scope.row.planCaseId" @click="handleAiExecute(scope.row)">AI执行</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -99,7 +101,7 @@
 <script>
 import PageSection from '@/components/TestPlatform/common/PageSection'
 import { getCaseDetail } from '@/api/caseApi'
-import { executePlanCase, getPlanCaseList } from '@/api/planApi'
+import { aiExecutePlanCase, executePlanCase, getPlanCaseList } from '@/api/planApi'
 
 export default {
   name: 'PlanExecute',
@@ -115,6 +117,8 @@ export default {
       caseDetail: {},
       executeDialogVisible: false,
       submitting: false,
+      aiExecuting: false,
+      aiExecutingCaseId: '',
       executeResultText: '',
       pageNo: 1,
       pageSize: 10
@@ -215,6 +219,33 @@ export default {
         this.fetchPlanCases()
       }).finally(() => {
         this.submitting = false
+      })
+    },
+    handleAiExecute(row) {
+      if (!this.planId || !this.projectId) {
+        this.$message({ type: 'warning', message: '缺少计划或项目信息' })
+        return
+      }
+      const planCaseId = row && row.planCaseId
+      const message = planCaseId ? '确认让 AI 执行当前用例并回填结果？' : '确认让 AI 执行当前计划下待执行/未通过的用例并回填结果？'
+      this.$confirm(message, 'AI执行确认', { type: 'warning' }).then(() => {
+        this.aiExecuting = !planCaseId
+        this.aiExecutingCaseId = planCaseId || ''
+        return aiExecutePlanCase(this.projectId, this.planId, planCaseId ? { id: planCaseId } : {})
+      }).then(res => {
+        const data = (res && res.data) || res || {}
+        this.$message({
+          type: 'success',
+          message: `AI执行完成：共${data.total || 0}条，通过${data.passed || 0}条，失败${data.failed || 0}条，阻塞${data.blocked || 0}条`
+        })
+        this.fetchPlanCases()
+      }).catch(err => {
+        if (err !== 'cancel' && err !== 'close') {
+          this.$message({ type: 'error', message: (err && err.message) || 'AI执行失败' })
+        }
+      }).finally(() => {
+        this.aiExecuting = false
+        this.aiExecutingCaseId = ''
       })
     },
     formatSteps(steps) {
