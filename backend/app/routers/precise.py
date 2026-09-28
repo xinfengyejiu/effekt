@@ -10,6 +10,7 @@ from typing import Optional
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
 from app.core.response import api_success, api_failure
+from app.core.ai_executor import run_in_ai_executor
 
 router = APIRouter(prefix="/precise", tags=["precise"])
 
@@ -87,8 +88,12 @@ async def precise_analysis_ai_impact(
 ):
     from app.api.controller.preciseTestController import PreciseTestController
     body = await request.json()
-    controller = PreciseTestController(body)
-    return _precise_response(controller, lambda: controller.ai_impact(analysis_id))
+
+    def _job():
+        controller = PreciseTestController(body)
+        return _precise_response(controller, lambda: controller.ai_impact(analysis_id))
+
+    return await run_in_ai_executor(_job)
 
 
 @router.get("/relations/list")
@@ -309,8 +314,12 @@ async def precise_coverage_ai_risk_analysis(
 ):
     from app.api.controller.preciseTestController import PreciseTestController
     body = await request.json()
-    controller = PreciseTestController(body)
-    return _precise_response(controller, lambda: controller.ai_risk_analysis(coverage_id))
+
+    def _job():
+        controller = PreciseTestController(body)
+        return _precise_response(controller, lambda: controller.ai_risk_analysis(coverage_id))
+
+    return await run_in_ai_executor(_job)
 
 
 @router.post("/gate/evaluate")

@@ -29,13 +29,25 @@
         </el-tab-pane>
         <el-tab-pane label="环境配置" name="environments">
           <div class="toolbar-wrap">
-            <el-button type="primary" size="small" @click="openEnvironmentDialog">新增环境</el-button>
+            <el-button type="primary" size="small" @click="openEnvironmentDialog()">新增环境</el-button>
           </div>
           <el-table :data="environments" border>
-            <el-table-column prop="name" label="环境"></el-table-column>
+            <el-table-column prop="name" label="环境" width="120"></el-table-column>
+            <el-table-column label="数据库连接" min-width="220">
+              <template slot-scope="scope">
+                <span v-if="envDbSummary(scope.row)">{{ envDbSummary(scope.row) }}</span>
+                <el-tag v-else size="mini" type="info">未配置</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="variables" label="变量">
               <template slot-scope="scope">
-                <json-viewer :value="scope.row.variables"></json-viewer>
+                <json-viewer :value="envVariablesWithoutDb(scope.row)"></json-viewer>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="140" fixed="right">
+              <template slot-scope="scope">
+                <el-button type="text" size="small" @click="openEnvironmentDialog(scope.row)">编辑</el-button>
+                <el-button type="text" size="small" style="color: #f56c6c;" @click="handleEnvironmentDelete(scope.row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -105,7 +117,13 @@
             </el-pagination>
           </div>
         </el-tab-pane>
-        <el-tab-pane label="代码转 PRD" name="codePrd">
+        <el-tab-pane label="代码仓库" name="codePrd">
+          <el-alert
+            title="对话造数会拉取此仓库，并结合环境库表结构生成更准确的造数 SQL。"
+            type="info"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 12px;" />
           <div class="code-prd-config">
             <el-form ref="codePrdConfigForm" :model="codePrdConfig" :rules="codePrdRules" label-width="110px" size="small" class="code-prd-form">
               <el-form-item label="Git仓库地址" prop="repoUrl">
@@ -122,6 +140,7 @@
               </el-form-item>
             </el-form>
           </div>
+          <el-divider content-position="left">代码转 PRD（可选）</el-divider>
           <div class="code-prd-prompt-wrap">
             <el-input
               v-model="codePrdPromptAppend"
@@ -212,13 +231,43 @@
       </span>
     </el-dialog>
 
-    <el-dialog title="新增环境" :visible.sync="environmentDialogVisible" width="520px" @close="resetEnvironmentForm">
-      <el-form ref="environmentForm" :model="environmentForm" :rules="environmentRules" label-width="94px" size="small">
+    <el-dialog
+      :title="environmentDialogMode === 'edit' ? '编辑环境' : '新增环境'"
+      :visible.sync="environmentDialogVisible"
+      width="560px"
+      :close-on-click-modal="false"
+      @close="resetEnvironmentForm">
+      <el-form ref="environmentForm" :model="environmentForm" :rules="environmentRules" label-width="100px" size="small">
         <el-form-item label="环境名称" prop="name">
-          <el-input v-model.trim="environmentForm.name" maxlength="64" placeholder="请输入环境名称"></el-input>
+          <el-input v-model.trim="environmentForm.name" maxlength="64" placeholder="如 dev / st / pre"></el-input>
         </el-form-item>
+        <el-divider content-position="left">造数数据库连接</el-divider>
+        <el-form-item label="主机" prop="dbHost">
+          <el-input v-model.trim="environmentForm.dbHost" placeholder="如 192.168.1.100"></el-input>
+        </el-form-item>
+        <el-form-item label="端口" prop="dbPort">
+          <el-input-number v-model="environmentForm.dbPort" :min="1" :max="65535" controls-position="right" style="width: 100%;" />
+        </el-form-item>
+        <el-form-item label="数据库" prop="dbName">
+          <el-input v-model.trim="environmentForm.dbName" placeholder="数据库名"></el-input>
+        </el-form-item>
+        <el-form-item label="用户名" prop="dbUser">
+          <el-input v-model.trim="environmentForm.dbUser" placeholder="用户名"></el-input>
+        </el-form-item>
+        <el-form-item label="密码" prop="dbPassword">
+          <el-input
+            v-model="environmentForm.dbPassword"
+            type="password"
+            show-password
+            :placeholder="environmentDialogMode === 'edit' ? '不修改请留空' : '密码'" />
+        </el-form-item>
+        <el-divider content-position="left">其他变量（可选）</el-divider>
         <el-form-item label="变量JSON" prop="variablesText">
-          <el-input v-model.trim="environmentForm.variablesText" type="textarea" :rows="6" placeholder='请输入 JSON，例如 {"baseUrl":"https://test.com"}'></el-input>
+          <el-input
+            v-model.trim="environmentForm.variablesText"
+            type="textarea"
+            :rows="4"
+            placeholder='可选，例如 {"baseUrl":"https://test.com"}；数据库连接请用上方表单填写'></el-input>
         </el-form-item>
       </el-form>
       <span slot="footer">
@@ -282,6 +331,7 @@ import {
   createEnvironment,
   createProjectMember,
   createProjectHook,
+  deleteEnvironment,
   deleteProjectHook,
   getProjectEnvironments,
   getProjectHookDetail,
@@ -294,6 +344,7 @@ import {
   generateProjectCodePrd,
   exportProjectCodePrdDocx,
   saveProjectCodePrdConfig,
+  updateEnvironment,
   updateProjectHook
 } from '@/api/projectApi'
 import { getUserList } from '@/api/rbacApi'
@@ -303,8 +354,15 @@ const getDefaultMemberForm = () => ({
 })
 
 const getDefaultEnvironmentForm = () => ({
+  id: null,
   name: '',
-  variablesText: '{}'
+  variablesText: '{}',
+  dbHost: '',
+  dbPort: 5432,
+  dbName: '',
+  dbUser: '',
+  dbPassword: '',
+  existingDbPassword: ''
 })
 
 const getDefaultHookForm = () => ({
@@ -338,6 +396,7 @@ export default {
       environments: [],
       memberDialogVisible: false,
       environmentDialogVisible: false,
+      environmentDialogMode: 'create',
       memberSubmitting: false,
       environmentSubmitting: false,
       memberForm: getDefaultMemberForm(),
@@ -346,8 +405,7 @@ export default {
         user_ids: [{ required: true, message: '请选择用户', trigger: 'change' }]
       },
       environmentRules: {
-        name: [{ required: true, message: '请输入环境名称', trigger: 'blur' }],
-        variablesText: [{ required: true, message: '请输入变量JSON', trigger: 'blur' }]
+        name: [{ required: true, message: '请输入环境名称', trigger: 'blur' }]
       },
       userOptions: [],
       userLoading: false,
@@ -911,10 +969,31 @@ export default {
         })
       })
     },
-    openEnvironmentDialog() {
+    openEnvironmentDialog(row) {
+      this.environmentDialogMode = row && row.id ? 'edit' : 'create'
       this.environmentDialogVisible = true
       this.$nextTick(() => {
-        this.environmentForm = getDefaultEnvironmentForm()
+        if (row && row.id) {
+          const variables = row.variables && typeof row.variables === 'object' ? { ...row.variables } : {}
+          const db = variables.dbConnection || variables.db_connection || variables.database || {}
+          const rest = { ...variables }
+          delete rest.dbConnection
+          delete rest.db_connection
+          delete rest.database
+          this.environmentForm = {
+            id: row.id,
+            name: row.name || '',
+            variablesText: JSON.stringify(rest || {}, null, 2),
+            dbHost: db.host || '',
+            dbPort: db.port ? Number(db.port) : 5432,
+            dbName: db.database || db.database_name || db.databaseName || '',
+            dbUser: db.user || db.username || '',
+            dbPassword: '',
+            existingDbPassword: db.password || ''
+          }
+        } else {
+          this.environmentForm = getDefaultEnvironmentForm()
+        }
         if (this.$refs.environmentForm) {
           this.$refs.environmentForm.clearValidate()
         }
@@ -922,6 +1001,7 @@ export default {
     },
     resetEnvironmentForm() {
       this.environmentForm = getDefaultEnvironmentForm()
+      this.environmentDialogMode = 'create'
       this.environmentSubmitting = false
       this.$nextTick(() => {
         if (this.$refs.environmentForm) {
@@ -929,37 +1009,116 @@ export default {
         }
       })
     },
+    envDbConfig(row) {
+      const variables = (row && row.variables) || {}
+      if (!variables || typeof variables !== 'object') return null
+      return variables.dbConnection || variables.db_connection || variables.database || null
+    },
+    envDbSummary(row) {
+      const db = this.envDbConfig(row)
+      if (!db || !db.host) return ''
+      const database = db.database || db.database_name || db.databaseName || ''
+      return `${db.host}:${db.port || '-'} / ${database || '-'}`
+    },
+    envVariablesWithoutDb(row) {
+      const variables = (row && row.variables && typeof row.variables === 'object')
+        ? { ...row.variables }
+        : {}
+      delete variables.dbConnection
+      delete variables.db_connection
+      delete variables.database
+      return variables
+    },
+    buildEnvironmentVariables() {
+      let variables = {}
+      try {
+        variables = JSON.parse(this.environmentForm.variablesText || '{}')
+      } catch (e) {
+        throw new Error('变量JSON格式不正确')
+      }
+      if (!variables || typeof variables !== 'object' || Array.isArray(variables)) {
+        throw new Error('变量JSON须为对象')
+      }
+      const host = (this.environmentForm.dbHost || '').trim()
+      const dbName = (this.environmentForm.dbName || '').trim()
+      const dbUser = (this.environmentForm.dbUser || '').trim()
+      const passwordInput = this.environmentForm.dbPassword
+      const password = passwordInput !== '' && passwordInput != null
+        ? passwordInput
+        : (this.environmentForm.existingDbPassword || '')
+      if (host || dbName || dbUser || passwordInput || this.environmentForm.existingDbPassword) {
+        if (!host || !this.environmentForm.dbPort || !dbName || !dbUser) {
+          throw new Error('请完整填写数据库主机、端口、库名、用户名')
+        }
+        if (!password) {
+          throw new Error('请填写数据库密码')
+        }
+        variables.dbConnection = {
+          host,
+          port: Number(this.environmentForm.dbPort),
+          database: dbName,
+          user: dbUser,
+          password
+        }
+      } else {
+        delete variables.dbConnection
+        delete variables.db_connection
+        delete variables.database
+      }
+      return variables
+    },
     submitEnvironment() {
       this.$refs.environmentForm.validate(valid => {
         if (!valid) {
           return
         }
-        let variables = {}
+        let variables
         try {
-          variables = JSON.parse(this.environmentForm.variablesText || '{}')
+          variables = this.buildEnvironmentVariables()
         } catch (e) {
-          this.$message.error('变量JSON格式不正确')
+          this.$message.error(e.message || '环境配置不正确')
           return
         }
         this.environmentSubmitting = true
-        createEnvironment({
-          project_id: this.getProjectId(),
-          name: this.environmentForm.name,
-          variables
-        }).then(res => {
+        const isEdit = this.environmentDialogMode === 'edit' && this.environmentForm.id
+        const req = isEdit
+          ? updateEnvironment({
+            environmentId: this.environmentForm.id,
+            name: this.environmentForm.name,
+            variables
+          })
+          : createEnvironment({
+            project_id: this.getProjectId(),
+            name: this.environmentForm.name,
+            variables
+          })
+        req.then(res => {
           const message = (res && res.message) || ''
           if (res && res.code === 20000) {
-            this.$message.success(message || '环境新增成功')
+            this.$message.success(message || (isEdit ? '环境更新成功' : '环境新增成功'))
             this.environmentDialogVisible = false
             this.environmentPageNo = 1
             this.fetchData()
             return
           }
-          this.$message.error(message || '环境新增失败')
+          this.$message.error(message || (isEdit ? '环境更新失败' : '环境新增失败'))
         }).finally(() => {
           this.environmentSubmitting = false
         })
       })
+    },
+    handleEnvironmentDelete(row) {
+      if (!row || !row.id) return
+      this.$confirm(`确认删除环境「${row.name}」？`, '提示', { type: 'warning' }).then(() => {
+        return deleteEnvironment({ environmentId: row.id })
+      }).then(res => {
+        if (res && res.code === 20000) {
+          this.$message.success('环境已删除')
+          this.fetchData()
+          return
+        }
+        this.$message.error((res && res.message) || '删除失败')
+      }).catch(() => {})
     },
     handleMemberSizeChange(val) {
       this.memberPageSize = val
@@ -981,6 +1140,10 @@ export default {
     }
   },
   created() {
+    const tab = this.$route.query.tab
+    if (tab && ['members', 'environments', 'hooks', 'codePrd'].includes(String(tab))) {
+      this.activeTab = String(tab)
+    }
     this.fetchData()
     this.fetchHooks()
     this.fetchCodePrdConfig()

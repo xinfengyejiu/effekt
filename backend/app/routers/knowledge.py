@@ -7,6 +7,7 @@ from werkzeug.datastructures import FileStorage, ImmutableMultiDict
 from app.core.database import get_db
 from app.core.security import require_permission
 from app.core.response import api_success, api_failure
+from app.core.ai_executor import run_in_ai_executor
 from app.api.controller.knowledgeController import KnowledgeController
 
 router = APIRouter(tags=["knowledge"])
@@ -76,10 +77,14 @@ async def knowledge_document_parse(
     user: dict = Depends(require_permission("knowledge:parse")),
     db: Session = Depends(get_db),
 ):
-    """解析文档"""
+    """解析文档（CPU/IO 密集，放入 AI 线程池）"""
     body = await request.json()
-    controller = KnowledgeController(body)
-    return _knowledge_response(controller, controller.document_parse)
+
+    def _job():
+        controller = KnowledgeController(body)
+        return _knowledge_response(controller, controller.document_parse)
+
+    return await run_in_ai_executor(_job)
 
 
 @router.post("/knowledge/document/delete")
@@ -102,10 +107,14 @@ async def knowledge_search(
     user: dict = Depends(require_permission("knowledge:search")),
     db: Session = Depends(get_db),
 ):
-    """知识搜索"""
+    """知识搜索（检索放入专用线程，不阻塞其它接口）"""
     body = await request.json()
-    controller = KnowledgeController(body)
-    return _knowledge_response(controller, controller.search)
+
+    def _job():
+        controller = KnowledgeController(body)
+        return _knowledge_response(controller, controller.search)
+
+    return await run_in_ai_executor(_job)
 
 
 @router.post("/knowledge/chat")
@@ -114,10 +123,14 @@ async def knowledge_chat(
     user: dict = Depends(require_permission("knowledge:chat")),
     db: Session = Depends(get_db),
 ):
-    """知识对话"""
+    """知识对话（检索 + LLM 放入专用线程，不阻塞其它接口）"""
     body = await request.json()
-    controller = KnowledgeController(body)
-    return _knowledge_response(controller, controller.chat)
+
+    def _job():
+        controller = KnowledgeController(body)
+        return _knowledge_response(controller, controller.chat)
+
+    return await run_in_ai_executor(_job)
 
 
 @router.get("/knowledge/chat/session/list")
@@ -185,7 +198,11 @@ async def knowledge_model_setting_test(
     user: dict = Depends(require_permission("knowledge:setting")),
     db: Session = Depends(get_db),
 ):
-    """测试模型设置"""
+    """测试模型设置（LLM 连通性，放入 AI 线程池）"""
     body = await request.json()
-    controller = KnowledgeController(body)
-    return _knowledge_response(controller, controller.model_setting_test)
+
+    def _job():
+        controller = KnowledgeController(body)
+        return _knowledge_response(controller, controller.model_setting_test)
+
+    return await run_in_ai_executor(_job)

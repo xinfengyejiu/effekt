@@ -130,7 +130,7 @@ export default {
       return (ms / 1000).toFixed(1) + 's'
     },
     viewDetail(row) {
-      this.$router.push({ path: '/inspection/executions', query: { id: row.id } })
+      this.$router.push({ path: '/inspection/execution/detail', query: { id: row.id } })
     }
   }
 }

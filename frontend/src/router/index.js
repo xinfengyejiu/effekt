@@ -1,4 +1,4 @@
-﻿import Vue from 'vue'
+import Vue from 'vue'
 import Router from 'vue-router'
 
 Vue.use(Router)
@@ -35,38 +35,23 @@ export default new Router({
         },
         {
           path: '/data-tools/db-builder',
-          name: 'CreateManage',
-          components: {
-            Manage: (resolve) => require(['@/components/CreateData/CreateManage'], resolve)
-          }
+          redirect: '/data-tools/factory'
         },
         {
           path: '/create/info',
-          name: 'CreateDataInfo',
-          components: {
-            Manage: (resolve) => require(['@/components/CreateData/CreateDataInfo'], resolve)
-          }
+          redirect: '/data-tools/factory'
         },
         {
           path: '/create/result/list',
-          name: 'CreateResultList',
-          components: {
-            Manage: (resolve) => require(['@/components/CreateData/CreateResultList'], resolve)
-          }
+          redirect: '/data-tools/factory/task'
         },
         {
           path: '/create/result',
-          name: 'CreateResult',
-          components: {
-            Manage: (resolve) => require(['@/components/CreateData/CreateResult'], resolve)
-          }
+          redirect: '/data-tools/factory/task'
         },
         {
           path: '/create/interface',
-          name: 'CreateInterfacePlaceholder',
-          components: {
-            Manage: (resolve) => require(['@/components/EffektHome'], resolve)
-          }
+          redirect: '/data-tools/factory'
         },
         {
           path: '/test-platform/project',
@@ -164,6 +149,34 @@ export default new Router({
           name: 'TestAssetGovernanceScanDetail',
           components: {
             Manage: (resolve) => require(['@/components/TestAssetGovernance/ScanDetail'], resolve)
+          }
+        },
+        {
+          path: '/explore-session',
+          name: 'ExploreSessionList',
+          components: {
+            Manage: (resolve) => require(['@/components/ExploratorySession/SessionList'], resolve)
+          }
+        },
+        {
+          path: '/explore-session/workspace',
+          name: 'ExploreSessionWorkspace',
+          components: {
+            Manage: (resolve) => require(['@/components/ExploratorySession/SessionWorkspace'], resolve)
+          }
+        },
+        {
+          path: '/chat-issue',
+          name: 'ChatIssueImportList',
+          components: {
+            Manage: (resolve) => require(['@/components/ChatIssueImport/ImportList'], resolve)
+          }
+        },
+        {
+          path: '/chat-issue/review',
+          name: 'ChatIssueImportReview',
+          components: {
+            Manage: (resolve) => require(['@/components/ChatIssueImport/ImportReview'], resolve)
           }
         },
         {
@@ -343,6 +356,27 @@ export default new Router({
           }
         },
         {
+          path: '/weak-network',
+          name: 'WeakNetworkProfiles',
+          components: {
+            Manage: (resolve) => require(['@/components/WeakNetwork/ProfileList'], resolve)
+          }
+        },
+        {
+          path: '/weak-network-ai',
+          name: 'WeakNetworkAiTasks',
+          components: {
+            Manage: (resolve) => require(['@/components/WeakNetworkAi/TaskList'], resolve)
+          }
+        },
+        {
+          path: '/weak-network-ai/detail',
+          name: 'WeakNetworkAiTaskDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/WeakNetworkAi/TaskDetail'], resolve)
+          }
+        },
+        {
           path: '/inspection',
           redirect: '/inspection/dashboard'
         },
@@ -400,6 +434,38 @@ export default new Router({
           }
         },
         {
+          path: '/contract',
+          redirect: '/contract/suites'
+        },
+        {
+          path: '/contract/suites',
+          name: 'ContractSuites',
+          components: {
+            Manage: (resolve) => require(['@/components/Contract/SuiteList'], resolve)
+          }
+        },
+        {
+          path: '/contract/suite/edit',
+          name: 'ContractSuiteEdit',
+          components: {
+            Manage: (resolve) => require(['@/components/Contract/SuiteEdit'], resolve)
+          }
+        },
+        {
+          path: '/contract/runs',
+          name: 'ContractRuns',
+          components: {
+            Manage: (resolve) => require(['@/components/Contract/RunList'], resolve)
+          }
+        },
+        {
+          path: '/contract/run/detail',
+          name: 'ContractRunDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/Contract/RunDetail'], resolve)
+          }
+        },
+        {
           path: '/precise',
           redirect: '/precise/analysis'
         },
@@ -450,6 +516,20 @@ export default new Router({
           name: 'PreciseQualityGate',
           components: {
             Manage: (resolve) => require(['@/components/PreciseTest/QualityGate'], resolve)
+          }
+        },
+        {
+          path: '/precise/radar',
+          name: 'ImpactRadarList',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/RadarList'], resolve)
+          }
+        },
+        {
+          path: '/precise/radar/detail',
+          name: 'ImpactRadarDetail',
+          components: {
+            Manage: (resolve) => require(['@/components/PreciseTest/RadarDetail'], resolve)
           }
         },
         {

@@ -1,4 +1,4 @@
-﻿# encoding: UTF-8
+# encoding: UTF-8
 from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session

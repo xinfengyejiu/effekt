@@ -1,0 +1,49 @@
+# encoding: UTF-8
+from sqlalchemy import BigInteger, Column, Integer, String, TIMESTAMP, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.declarative import declarative_base
+
+from common.sqlSession import to_dict
+
+Base = declarative_base()
+Base.to_dict = to_dict
+
+
+class ExploreSession(Base):
+    __tablename__ = 'explore_session'
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    session_no = Column(String(64), nullable=False, unique=True)
+    title = Column(String(255), nullable=False)
+    charter = Column(Text)
+    out_of_scope = Column(Text)
+    product_id = Column(BigInteger)
+    product_name = Column(String(128))
+    project_id = Column(BigInteger, nullable=False)
+    project_name = Column(String(128))
+    plan_id = Column(BigInteger)
+    environment = Column(String(64))
+    status = Column(String(32), nullable=False, default='draft')
+    summary = Column(Text)
+    started_at = Column(TIMESTAMP)
+    ended_at = Column(TIMESTAMP)
+    created_by = Column(BigInteger)
+    meta = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    is_delete = Column(Integer, default=0)
+    created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
+    updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'))
+
+
+class ExploreSessionEntry(Base):
+    __tablename__ = 'explore_session_entry'
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    session_id = Column(BigInteger, nullable=False)
+    entry_type = Column(String(32), nullable=False)
+    content = Column(Text)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    sort_no = Column(Integer, nullable=False, default=0)
+    linked_bug_id = Column(BigInteger)
+    linked_case_id = Column(BigInteger)
+    created_by = Column(BigInteger)
+    is_delete = Column(Integer, default=0)
+    created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
+    updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'))

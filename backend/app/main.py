@@ -1,11 +1,11 @@
-﻿# encoding: UTF-8
+# encoding: UTF-8
 """
 FastAPI 主入口文件
 """
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from itertools import count
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -71,12 +71,23 @@ async def lifespan(app: FastAPI):
         inspection_scheduler.start()
     except Exception as e:
         logger.warning("巡检调度器启动失败（非致命）: %s", str(e))
+    # 启动契约调度器
+    try:
+        from app.core.contractScheduler import contract_scheduler
+        contract_scheduler.start()
+    except Exception as e:
+        logger.warning("契约调度器启动失败（非致命）: %s", str(e))
     yield
     logger.info("FastAPI app shutting down...")
     # 停止巡检调度器
     try:
         from app.core.inspectionScheduler import inspection_scheduler
         inspection_scheduler.stop()
+    except Exception:
+        pass
+    try:
+        from app.core.contractScheduler import contract_scheduler
+        contract_scheduler.stop()
     except Exception:
         pass
 
@@ -101,11 +112,41 @@ app.add_middleware(LegacyFlaskContextMiddleware, flask_app=legacy_flask_app)
 
 
 # 静态文件服务（上传的文件）
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'attachment', 'bug_picture')
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPLOAD_FOLDER = os.path.join(_ROOT_DIR, 'attachment', 'bug_picture')
+EXPLORE_UPLOAD_FOLDER = os.path.join(_ROOT_DIR, 'attachment', 'explore_session')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(EXPLORE_UPLOAD_FOLDER, exist_ok=True)
 
 if os.path.exists(UPLOAD_FOLDER):
     app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
+if os.path.exists(EXPLORE_UPLOAD_FOLDER):
+    app.mount(
+        "/attachment/explore_session",
+        StaticFiles(directory=EXPLORE_UPLOAD_FOLDER),
+        name="explore_session_uploads",
+    )
+
+
+# 鉴权类 HTTPException：把 detail 业务体摊平到顶层，方便前端读 code/message
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict):
+        content = {
+            'success': detail.get('success', False),
+            'code': detail.get('code', exc.status_code),
+            'message': detail.get('message') or detail.get('msg') or '',
+            'data': detail.get('data', {}),
+        }
+        for key, value in detail.items():
+            if key not in content:
+                content[key] = value
+        return JSONResponse(status_code=exc.status_code, content=content)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={'success': False, 'code': exc.status_code, 'message': str(detail or ''), 'data': {}},
+    )
 
 
 # 全局异常处理
@@ -135,7 +176,8 @@ from app.routers import (
     rbac, automation, performance, mobile_automation, mock, precise,
     skill, knowledge, report, data_builder, test_asset, sql_project,
     ai_agent, ai_tool, ai_mcp, ai_flow, ai_task, ai_report,
-    ai_review, ai_workload_estimate, inspection,
+    ai_review, ai_workload_estimate, inspection, contract, quality_assistant,
+    impact_radar, explore_session, chat_issue, weak_network, weak_network_ai,
 )
 
 _API_PREFIX = "/it/api"
@@ -169,6 +211,13 @@ app.include_router(ai_report.router, prefix=_API_PREFIX)
 app.include_router(ai_review.router, prefix=_API_PREFIX)
 app.include_router(ai_workload_estimate.router, prefix=_API_PREFIX)
 app.include_router(inspection.router, prefix=_API_PREFIX)
+app.include_router(contract.router, prefix=_API_PREFIX)
+app.include_router(quality_assistant.router, prefix=_API_PREFIX)
+app.include_router(impact_radar.router, prefix=_API_PREFIX)
+app.include_router(explore_session.router, prefix=_API_PREFIX)
+app.include_router(chat_issue.router, prefix=_API_PREFIX)
+app.include_router(weak_network.router, prefix=_API_PREFIX)
+app.include_router(weak_network_ai.router, prefix=_API_PREFIX)
 
 
 if __name__ == "__main__":

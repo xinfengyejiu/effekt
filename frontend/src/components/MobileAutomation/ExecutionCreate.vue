@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-wrap">
     <page-section :title="configId ? '编辑移动执行配置' : '新增移动执行配置'">
       <el-alert
@@ -551,7 +551,7 @@ export default {
   background: #ecf5ff;
   border-radius: 4px;
   padding: 8px;
-  border-left: 3px solid #1e40af;
+  border-left: 3px solid #409eff;
 }
-.debug-log-fix-text { font-size: 13px; color: #1e40af; }
+.debug-log-fix-text { font-size: 13px; color: #409eff; }
 </style>

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="process-workspace">
     <header v-if="execution" class="process-header">
       <div class="title-block">

@@ -1,4 +1,4 @@
-﻿# encoding: UTF-8
+# encoding: UTF-8
 from app.api.dao.mobileAutomationDao import MobileAutomationDao
 from app.api.service.mobileDeviceService import MobileDeviceService
 from app.api.service.mobileExecutionService import MobileExecutionService

@@ -18,9 +18,22 @@ function pushLoginExpired(message) {
   Message.error(message || '登录已失效，请重新登录')
 }
 
+/** FastAPI HTTPException 常把业务体放在 detail 里，统一摊平便于读 code/message */
+function normalizeApiPayload(data) {
+  if (!data || typeof data !== 'object') return data || {}
+  const detail = data.detail
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    if (detail.code !== undefined || detail.message !== undefined || detail.success !== undefined) {
+      return Object.assign({}, data, detail)
+    }
+  }
+  return data
+}
+
 function apiCode(data) {
-  if (!data || data.code === undefined || data.code === null) return null
-  const n = Number(data.code)
+  const payload = normalizeApiPayload(data)
+  if (!payload || payload.code === undefined || payload.code === null) return null
+  const n = Number(payload.code)
   return Number.isFinite(n) ? n : null
 }
 
@@ -73,7 +86,7 @@ service.interceptors.request.use(
 
 service.interceptors.response.use(
   response => {
-    const data = response && response.data ? response.data : {}
+    const data = normalizeApiPayload(response && response.data ? response.data : {})
     if (data && data.code === 500) {
       Message.error('服务异常')
       return Promise.reject(new Error(data.message || '服务异常'))
@@ -97,11 +110,11 @@ service.interceptors.response.use(
       Message.error(data.message || '请求失败')
       return Promise.reject(new Error(data.message || '请求失败'))
     }
-    return response.data
+    return data
   },
   error => {
     const res = error && error.response
-    const data = res && res.data ? res.data : null
+    const data = normalizeApiPayload(res && res.data ? res.data : null)
     if (data && isMissingToken(data) && error.config) {
       pushLoginExpired(data.message || '缺少token！')
       return Promise.reject(new Error(data.message || '缺少token'))
@@ -111,7 +124,7 @@ service.interceptors.response.use(
     }
     if (data && isForbiddenApi(data)) {
       Message.error(data.message || '无权限访问该接口！')
-      return Promise.reject(error)
+      return Promise.reject(new Error(data.message || '无权限访问该接口'))
     }
     if (data && typeof data === 'object') {
       if (data.success === false) {
@@ -122,7 +135,7 @@ service.interceptors.response.use(
     } else if (error && error.message) {
       Message.error(error.message)
     }
-    return Promise.reject(error)
+    return Promise.reject(data && data.message ? new Error(data.message) : error)
   }
 )
 

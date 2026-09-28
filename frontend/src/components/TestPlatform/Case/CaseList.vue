@@ -2821,7 +2821,7 @@ export default {
   height: 32px;
   border-radius: 6px;
   color: #fff;
-  background: #1e40af;
+  background: #409eff;
   font-weight: 600;
   margin-bottom: 8px;
 }
@@ -2857,7 +2857,7 @@ export default {
   padding: 28px 20px;
   margin: 0 auto;
   max-width: 520px;
-  background: #1e293b;
+  background: #0f172a;
 }
 
 .case-import-drop-text {
@@ -2866,7 +2866,7 @@ export default {
 }
 
 .link-text {
-  color: #1e40af;
+  color: #409eff;
   cursor: pointer;
 }
 
@@ -3083,7 +3083,7 @@ export default {
   margin-top: 8px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 6px;
-  background: #1e293b;
+  background: #0f172a;
   padding: 14px 12px;
   min-height: 280px;
   overflow: auto;
@@ -3310,7 +3310,7 @@ body.theme-light .ai-case-import-tip {
 }
 
 body.theme-light .case-export-progress-title {
-  color: #111827;
+  color: #0f172a;
 }
 
 body.theme-light .case-export-progress-desc {
@@ -3369,7 +3369,7 @@ body.theme-light .ai-gen-params-bar {
 body.theme-light .ai-gen-params-label,
 body.theme-light .ai-doc-block-title,
 body.theme-light .ai-case-table-title {
-  color: #111827;
+  color: #0f172a;
 }
 
 body.theme-light .ai-gen-params-hint {
@@ -3396,7 +3396,7 @@ body.theme-light .mindmap-node {
 }
 
 body.theme-light .mindmap-node-title {
-  color: #111827;
+  color: #0f172a;
 }
 
 body.theme-light .mindmap-node-project {
@@ -3424,7 +3424,7 @@ body.theme-light .mindmap-inline-detail-card {
 }
 
 body.theme-light .mindmap-inline-detail-title {
-  color: #111827;
+  color: #0f172a;
 }
 
 body.theme-light .mindmap-inline-detail-item {
@@ -3448,7 +3448,7 @@ body.theme-light .mindmap-empty {
 }
 
 .case-list-tabs .el-tabs__item.is-active {
-  color: #1e40af;
+  color: #38bdf8;
 }
 
 .case-list-tabs .el-tabs__nav-wrap::after {
@@ -3493,7 +3493,7 @@ body.theme-light .case-list-tabs .el-tabs__nav-wrap::after {
 .el-dialog.case-auto-gen-dialog .el-input__inner,
 .el-dialog.case-auto-gen-dialog .el-textarea__inner,
 .el-dialog.case-auto-gen-dialog .el-select .el-input__inner {
-  background-color: #1e293b;
+  background-color: #0f172a;
   border-color: rgba(148, 163, 184, 0.28);
   color: #f8fafc;
 }
@@ -3519,7 +3519,7 @@ body.theme-light .el-dialog.case-auto-gen-dialog .el-form-item__label {
 }
 
 body.theme-light .el-dialog.case-auto-gen-dialog .auto-gen-case-title {
-  color: #111827;
+  color: #0f172a;
 }
 
 body.theme-light .el-dialog.case-auto-gen-dialog .el-input__inner,
@@ -3531,7 +3531,7 @@ body.theme-light .el-dialog.case-auto-gen-dialog .el-select .el-input__inner {
 }
 
 .page-wrap .el-date-editor .el-input__inner {
-  background-color: #1e293b;
+  background-color: #0f172a;
   border-color: rgba(148, 163, 184, 0.28);
   color: #f8fafc;
 }
@@ -3591,7 +3591,7 @@ body.theme-light .page-wrap .el-date-editor .el-range-separator {
 
 .el-dialog.case-ai-detail-dialog .ai-case-detail-text {
   color: #e5e7eb;
-  background: #1e293b;
+  background: #0f172a;
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
@@ -3640,7 +3640,7 @@ body.theme-light .el-dialog.case-ai-detail-dialog .el-dialog__body {
 }
 
 body.theme-light .el-dialog.case-ai-detail-dialog .ai-case-detail-title {
-  color: #111827;
+  color: #0f172a;
 }
 
 body.theme-light .el-dialog.case-ai-detail-dialog .ai-case-detail-label {

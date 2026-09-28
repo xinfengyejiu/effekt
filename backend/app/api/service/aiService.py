@@ -1050,7 +1050,64 @@ class AIService:
         return [round(item / norm, 6) for item in vector]
 
     @staticmethod
-    def chat_with_context(query, evidences=None, model_setting=None):
+    def chat_plain(prompt, system_prompt=None, model_setting=None, read_timeout=45, max_tokens=None):
+        """通用短对话（非知识库 RAG）。失败返回 ('', err)。"""
+        try:
+            from openai import OpenAI
+            from config.ai_config import AIConfig
+            import httpx
+
+            model_setting = model_setting or {}
+            api_key = AIConfig.get_api_key()
+            if not api_key or api_key == '请替换为你的Meteor API Key':
+                return '', '未配置API密钥，请在.env中配置METEOR_API_KEY'
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            model = model_setting.get('model') or AIConfig.get_model()
+            temperature = float(
+                model_setting.get('temperature')
+                if model_setting.get('temperature') is not None
+                else min(float(AIConfig.OPENAI_TEMPERATURE), 0.3)
+            )
+            token_limit = int(
+                max_tokens
+                or model_setting.get('maxTokens')
+                or model_setting.get('max_tokens')
+                or min(int(AIConfig.OPENAI_MAX_TOKENS), 2048)
+            )
+            is_plan_key = '/plan/' in (api_base or '')
+            request_base = AIService._normalize_plan_api_base(api_base) if is_plan_key else AIService._normalize_api_base(api_base)
+            connect_timeout = min(float(AIConfig.CONNECT_TIMEOUT), 20.0)
+            read_timeout = float(read_timeout or 45)
+            timeout = httpx.Timeout(
+                connect=connect_timeout,
+                read=read_timeout,
+                write=read_timeout,
+                pool=connect_timeout,
+            )
+            system_text = (system_prompt or '').strip() or '你是严谨的助手，只按用户要求输出。'
+            user_text = (prompt or '').strip()
+            if not user_text:
+                return '', 'prompt 为空'
+            if is_plan_key:
+                plan_prompt = '{}\n\n{}'.format(system_text, user_text)
+                return AIService._create_plan_message(api_key, request_base, model, plan_prompt, timeout), ''
+            client = OpenAI(api_key=api_key, base_url=request_base, http_client=httpx.Client(timeout=timeout, trust_env=False))
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": user_text},
+                ],
+                max_tokens=token_limit,
+                temperature=temperature,
+            )
+            content = ''
+            if response and response.choices:
+                content = (response.choices[0].message.content or '').strip()
+            return content, ''
+        except Exception as e:
+            logger.error('chat_plain 调用失败: %s', e)
+            return '', '模型调用失败: {}'.format(e)
         try:
             from openai import OpenAI
             from config.ai_config import AIConfig
@@ -1088,6 +1145,78 @@ class AIService:
             logger.error(f'知识库问答失败: {str(e)}')
             logger.error(traceback.format_exc())
             return '', f'模型调用失败: {str(e)}'
+
+    @staticmethod
+    def chat_with_image(prompt, image_bytes, mime_type='image/png', model_setting=None):
+        """多模态识图问答；失败时返回错误信息供业务降级。"""
+        try:
+            import base64
+            from openai import OpenAI
+            from config.ai_config import AIConfig
+            import httpx
+
+            model_setting = model_setting or {}
+            api_key = AIConfig.get_api_key()
+            if not api_key or api_key == '请替换为你的Meteor API Key':
+                return '', '未配置API密钥，请在.env中配置METEOR_API_KEY'
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            model = model_setting.get('model') or AIConfig.get_model()
+            temperature = float(
+                model_setting.get('temperature')
+                if model_setting.get('temperature') is not None
+                else AIConfig.OPENAI_TEMPERATURE
+            )
+            max_tokens = int(
+                model_setting.get('maxTokens')
+                or model_setting.get('max_tokens')
+                or AIConfig.OPENAI_MAX_TOKENS
+            )
+            is_plan_key = '/plan/' in (api_base or '')
+            request_base = (
+                AIService._normalize_plan_api_base(api_base)
+                if is_plan_key
+                else AIService._normalize_api_base(api_base)
+            )
+            timeout = httpx.Timeout(
+                connect=AIConfig.CONNECT_TIMEOUT,
+                read=AIConfig.READ_TIMEOUT,
+                write=AIConfig.READ_TIMEOUT,
+                pool=AIConfig.CONNECT_TIMEOUT,
+            )
+            mime = (mime_type or 'image/png').split(';')[0].strip().lower()
+            if mime == 'image/jpg':
+                mime = 'image/jpeg'
+            b64 = base64.b64encode(image_bytes).decode('ascii')
+            data_url = 'data:{};base64,{}'.format(mime, b64)
+            user_content = [
+                {'type': 'text', 'text': prompt or '请识别图片中的文字'},
+                {'type': 'image_url', 'image_url': {'url': data_url}},
+            ]
+            if is_plan_key:
+                # plan key 路径通常只支持文本；尝试把提示发给文本通道并说明无法识图
+                return '', '当前模型通道不支持识图，请改用自然语言/SQL，或配置支持 vision 的模型'
+            client = OpenAI(
+                api_key=api_key,
+                base_url=request_base,
+                http_client=httpx.Client(timeout=timeout, trust_env=False),
+            )
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': '你是测试造数助手，请根据截图内容输出结构化结果。',
+                    },
+                    {'role': 'user', 'content': user_content},
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content, ''
+        except Exception as e:
+            logger.error('识图问答失败: %s', e)
+            logger.error(traceback.format_exc())
+            return '', '识图失败: {}'.format(e)
 
     @staticmethod
     def _build_rag_prompt(query, evidences):

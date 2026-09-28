@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-wrap">
     <page-section title="移动自动化环境">
       <template slot="extra">

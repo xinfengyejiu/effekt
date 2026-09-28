@@ -1,4 +1,4 @@
-﻿import request from '@/utils/request'
+import request from '@/utils/request'
 
 export function getMobileEnvironmentCheck() {
   return request({ url: '/mobile_automation/environment/check', method: 'get' })
