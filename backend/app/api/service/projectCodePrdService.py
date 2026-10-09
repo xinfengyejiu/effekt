@@ -12,7 +12,7 @@ from common.sqlSession import SqlSession
 from ..dao.projectCodePrdDao import ProjectCodePrdDao
 from ..model.productModel import Product
 from ..model.projectModel import Project
-from ..model.projectCodePrdModel import ProjectCodePrdConfig, ProjectCodePrdRecord
+from ..model.projectCodePrdModel import ProjectCodePrdConfig, ProjectCodePrdRecord, ProjectGitRepo
 from .aiService import AIService
 
 
@@ -36,6 +36,174 @@ class ProjectCodePrdService(object):
             ProjectCodePrdConfig,
             [ProjectCodePrdConfig.project_id == int(project_id)]
         )
+
+    @staticmethod
+    def list_git_repos(session, project_id, enabled_only=True):
+        """返回项目下多仓库列表（含兼容：无多仓时回退旧 config）。"""
+        if project_id in (None, ''):
+            return []
+        filters = [
+            ProjectGitRepo.project_id == int(project_id),
+            ProjectGitRepo.is_delete == 0,
+        ]
+        if enabled_only:
+            filters.append(ProjectGitRepo.enabled == 1)
+        rows = session.query(ProjectGitRepo).filter(*filters).order_by(
+            ProjectGitRepo.is_primary.desc(),
+            ProjectGitRepo.sort_no.asc(),
+            ProjectGitRepo.id.asc(),
+        ).all()
+        if rows:
+            return rows
+        # 兼容旧单仓配置
+        cfg = ProjectCodePrdService.get_config_by_project(session, project_id)
+        if cfg and (cfg.repo_url or '').strip():
+            return [cfg]
+        return []
+
+    @staticmethod
+    def git_repo_to_dict(obj):
+        if not obj:
+            return {}
+        # ProjectCodePrdConfig 兼容形态
+        if isinstance(obj, ProjectCodePrdConfig):
+            return {
+                'id': obj.id,
+                'projectId': obj.project_id,
+                'name': '默认仓库',
+                'repoUrl': obj.repo_url,
+                'defaultBranch': obj.default_branch or 'master',
+                'roleTag': 'backend',
+                'isPrimary': 1,
+                'sortNo': 0,
+                'enabled': 1,
+                'legacy': True,
+            }
+        return {
+            'id': obj.id,
+            'projectId': obj.project_id,
+            'name': obj.name or '',
+            'repoUrl': obj.repo_url,
+            'defaultBranch': obj.default_branch or 'master',
+            'roleTag': obj.role_tag or 'backend',
+            'isPrimary': int(obj.is_primary or 0),
+            'sortNo': int(obj.sort_no or 0),
+            'enabled': int(obj.enabled or 0),
+            'legacy': False,
+        }
+
+    @staticmethod
+    def list_git_repos_api(session, project_id):
+        rows = ProjectCodePrdService.list_git_repos(session, project_id, enabled_only=False)
+        return {
+            'list': [ProjectCodePrdService.git_repo_to_dict(x) for x in rows],
+            'total': len(rows),
+        }, ''
+
+    @staticmethod
+    def save_git_repo(session, req_data):
+        project_id = req_data.get('projectId') or req_data.get('project_id')
+        repo_url = (req_data.get('repoUrl') or req_data.get('repo_url') or '').strip()
+        if not project_id:
+            return {}, 'projectId 为必传参数'
+        if not repo_url:
+            return {}, 'repoUrl 为必传参数'
+        if not ProjectCodePrdService._is_safe_git_url(repo_url):
+            return {}, 'Git 仓库地址格式不正确'
+        name = (req_data.get('name') or '').strip() or '代码仓库'
+        branch = (req_data.get('defaultBranch') or req_data.get('default_branch') or 'master').strip() or 'master'
+        role_tag = (req_data.get('roleTag') or req_data.get('role_tag') or 'backend').strip() or 'backend'
+        is_primary = 1 if req_data.get('isPrimary') in (True, 1, '1', 'true', 'True') else 0
+        enabled = 0 if req_data.get('enabled') in (False, 0, '0', 'false', 'False') else 1
+        try:
+            sort_no = int(req_data.get('sortNo') or req_data.get('sort_no') or 0)
+        except (TypeError, ValueError):
+            sort_no = 0
+        repo_id = req_data.get('id') or req_data.get('repoId') or req_data.get('repo_id')
+
+        if is_primary:
+            session.query(ProjectGitRepo).filter(
+                ProjectGitRepo.project_id == int(project_id),
+                ProjectGitRepo.is_delete == 0,
+            ).update({'is_primary': 0}, synchronize_session=False)
+
+        values = {
+            'project_id': int(project_id),
+            'name': name[:128],
+            'repo_url': repo_url[:512],
+            'default_branch': branch[:128],
+            'role_tag': role_tag[:64],
+            'is_primary': is_primary,
+            'sort_no': sort_no,
+            'enabled': enabled,
+            'is_delete': 0,
+        }
+        if repo_id not in (None, ''):
+            _, err = ProjectCodePrdDao.update_by_id(session, ProjectGitRepo, repo_id, values)
+            if err:
+                return {}, err
+            obj = ProjectCodePrdDao.get_by_id(session, ProjectGitRepo, repo_id)
+        else:
+            # 首仓自动 primary
+            existing = session.query(ProjectGitRepo).filter(
+                ProjectGitRepo.project_id == int(project_id),
+                ProjectGitRepo.is_delete == 0,
+            ).count()
+            if existing == 0:
+                values['is_primary'] = 1
+            obj_id, err = ProjectCodePrdDao.create(session, ProjectGitRepo, values)
+            if err:
+                return {}, err
+            obj = ProjectCodePrdDao.get_by_id(session, ProjectGitRepo, obj_id)
+
+        ProjectCodePrdService._sync_primary_to_legacy_config(session, int(project_id))
+        return ProjectCodePrdService.git_repo_to_dict(obj), ''
+
+    @staticmethod
+    def delete_git_repo(session, req_data):
+        repo_id = req_data.get('id') or req_data.get('repoId') or req_data.get('repo_id')
+        if repo_id in (None, ''):
+            return {}, 'id 为必传参数'
+        obj = ProjectCodePrdDao.get_by_id(session, ProjectGitRepo, repo_id)
+        if not obj:
+            return {}, '仓库不存在'
+        project_id = obj.project_id
+        _, err = ProjectCodePrdDao.update_by_id(session, ProjectGitRepo, repo_id, {'is_delete': 1})
+        if err:
+            return {}, err
+        # 若删的是主仓，提升下一仓
+        if int(obj.is_primary or 0) == 1:
+            nxt = session.query(ProjectGitRepo).filter(
+                ProjectGitRepo.project_id == int(project_id),
+                ProjectGitRepo.is_delete == 0,
+                ProjectGitRepo.enabled == 1,
+            ).order_by(ProjectGitRepo.sort_no.asc(), ProjectGitRepo.id.asc()).first()
+            if nxt:
+                ProjectCodePrdDao.update_by_id(session, ProjectGitRepo, nxt.id, {'is_primary': 1})
+        ProjectCodePrdService._sync_primary_to_legacy_config(session, int(project_id))
+        return {'id': int(repo_id)}, ''
+
+    @staticmethod
+    def _sync_primary_to_legacy_config(session, project_id):
+        """主仓同步到旧 project_code_prd_config，保证代码转 PRD 仍可用。"""
+        primary = session.query(ProjectGitRepo).filter(
+            ProjectGitRepo.project_id == int(project_id),
+            ProjectGitRepo.is_delete == 0,
+            ProjectGitRepo.enabled == 1,
+        ).order_by(ProjectGitRepo.is_primary.desc(), ProjectGitRepo.sort_no.asc(), ProjectGitRepo.id.asc()).first()
+        if not primary:
+            return
+        existing = ProjectCodePrdService.get_config_by_project(session, project_id)
+        payload = {
+            'project_id': int(project_id),
+            'repo_url': primary.repo_url,
+            'default_branch': primary.default_branch or 'master',
+            'is_delete': 0,
+        }
+        if existing:
+            ProjectCodePrdDao.update_by_id(session, ProjectCodePrdConfig, existing.id, payload)
+        else:
+            ProjectCodePrdDao.create(session, ProjectCodePrdConfig, payload)
 
     @staticmethod
     def start_generate_prd(record_id, prompt_append=''):
@@ -138,7 +306,7 @@ class ProjectCodePrdService(object):
         return ProjectCodePrdService._scan_repo(str(repo_dir), repo_url, branch), ''
 
     @staticmethod
-    def _get_repo_work_dir(session, project_id, branch):
+    def _get_repo_work_dir(session, project_id, branch, repo_label=''):
         project = session.query(Project).filter(Project.id == int(project_id)).first() if project_id else None
         product = None
         if project and project.product_id:
@@ -147,6 +315,10 @@ class ProjectCodePrdService(object):
         project_name = ProjectCodePrdService._safe_path_name(project.name if project else f'project-{project_id}')
         branch_name = ProjectCodePrdService._safe_path_name(branch or 'default')
         repo_root = Path(__file__).resolve().parents[3] / 'downloads-git'
+        if repo_label:
+            label = ProjectCodePrdService._safe_path_name(repo_label)
+            return repo_root / product_name / f'{project_name}-{label}-{branch_name}'
+        # 兼容旧单仓目录：product/project-branch
         return repo_root / product_name / f'{project_name}-{branch_name}'
 
     @staticmethod

@@ -32,6 +32,10 @@ class UpdateSqlProjectController(object):
         self.creator = req_json.get('creator')
         self.qe_domain = QE_DOMAIN
 
+    def close_session(self):
+        if self.session:
+            self.session.close()
+
     def create_sql_project(self):
         project = self.project.strip().strip('"') if isinstance(self.project, str) else self.project
         run_env = self.run_env.strip().strip('"') if isinstance(self.run_env, str) else self.run_env

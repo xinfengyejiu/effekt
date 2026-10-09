@@ -37,3 +37,21 @@ class ProjectCodePrdRecord(Base):
     is_delete = Column(Integer, default=0, comment='0：未删除；1：已删除')
     created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), nullable=True, comment='创建时间')
     updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'), nullable=True, comment='修改时间')
+
+
+class ProjectGitRepo(Base):
+    """项目多代码仓库（微服务 / 前后端分离）。"""
+    __tablename__ = 'project_git_repo'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    project_id = Column(BigInteger, nullable=False)
+    name = Column(String(128), nullable=False, default='')
+    repo_url = Column(String(512), nullable=False)
+    default_branch = Column(String(128), nullable=False, default='master')
+    role_tag = Column(String(64), nullable=False, default='backend')
+    is_primary = Column(SmallInteger, nullable=False, default=0)
+    sort_no = Column(Integer, nullable=False, default=0)
+    enabled = Column(SmallInteger, nullable=False, default=1)
+    is_delete = Column(Integer, nullable=False, default=0)
+    created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
+    updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'))

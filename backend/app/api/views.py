@@ -32,6 +32,7 @@ from .controller.aiReportController import AiReportController
 from .controller.aiReviewController import AiReviewController
 from .controller.aiWorkloadEstimateController import AiWorkloadEstimateController
 from .controller.testAssetGovernanceController import TestAssetGovernanceController
+from .controller.exploreSessionController import ExploreSessionController
 from .controller.knowledgeController import KnowledgeController
 from .controller.performanceController import PerformanceController
 from .controller.preciseTestController import PreciseTestController
@@ -3497,6 +3498,115 @@ def test_asset_governance_issue_update():
 def test_asset_governance_action_apply():
     controller = TestAssetGovernanceController(request.get_json() or {})
     return _ai_response(controller, controller.action_apply, 'actionId')
+
+
+# =========================
+# 探索性测试 Session
+# =========================
+
+
+@api.route('/explore/session/create', methods=['POST'])
+@login_required
+@permission_required('explore_session:create')
+def explore_session_create():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.session_create, 'id')
+
+
+@api.route('/explore/session/list', methods=['GET'])
+@login_required
+@permission_required('explore_session:list')
+def explore_session_list():
+    controller = ExploreSessionController(request.args)
+    return _ai_response(controller, controller.session_list)
+
+
+@api.route('/explore/session/detail', methods=['GET'])
+@login_required
+@permission_required('explore_session:detail')
+def explore_session_detail():
+    controller = ExploreSessionController(request.args)
+    return _ai_response(controller, controller.session_detail)
+
+
+@api.route('/explore/session/update', methods=['POST'])
+@login_required
+@permission_required('explore_session:update')
+def explore_session_update():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.session_update, 'id')
+
+
+@api.route('/explore/session/start', methods=['POST'])
+@login_required
+@permission_required('explore_session:update')
+def explore_session_start():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.session_start, 'id')
+
+
+@api.route('/explore/session/end', methods=['POST'])
+@login_required
+@permission_required('explore_session:update')
+def explore_session_end():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.session_end, 'id')
+
+
+@api.route('/explore/session/archive', methods=['POST'])
+@login_required
+@permission_required('explore_session:update')
+def explore_session_archive():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.session_archive, 'id')
+
+
+@api.route('/explore/session/entry/add', methods=['POST'])
+@login_required
+@permission_required('explore_session:entry')
+def explore_session_entry_add():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.entry_add, 'id')
+
+
+@api.route('/explore/session/entry/update', methods=['POST'])
+@login_required
+@permission_required('explore_session:entry')
+def explore_session_entry_update():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.entry_update, 'id')
+
+
+@api.route('/explore/session/entry/delete', methods=['POST'])
+@login_required
+@permission_required('explore_session:entry')
+def explore_session_entry_delete():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.entry_delete, 'id')
+
+
+@api.route('/explore/session/upload', methods=['POST'])
+@login_required
+@permission_required('explore_session:upload')
+def explore_session_upload():
+    controller = ExploreSessionController({})
+    return _ai_response(controller, controller.upload, 'id')
+
+
+@api.route('/explore/session/to-bug', methods=['POST'])
+@login_required
+@permission_required('explore_session:to_bug')
+def explore_session_to_bug():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.to_bug, 'bugId')
+
+
+@api.route('/explore/session/to-case-draft', methods=['POST'])
+@login_required
+@permission_required('explore_session:to_case')
+def explore_session_to_case_draft():
+    controller = ExploreSessionController(request.get_json() or {})
+    return _ai_response(controller, controller.to_case_draft, 'caseId')
 
 
 # =========================

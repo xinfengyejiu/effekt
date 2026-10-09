@@ -367,6 +367,59 @@ async def project_code_prd_branches(
         controller.close_session()
 
 
+@router.get("/project/git-repos")
+async def project_git_repos(
+    request: Request,
+    user: dict = Depends(require_permission("project:detail")),
+    db: Session = Depends(get_db),
+):
+    """项目多代码仓库列表"""
+    controller = ProjectCodePrdController(dict(request.query_params))
+    try:
+        ret, err_msg = controller.git_repo_list()
+        if err_msg:
+            return api_failure(40011, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/project/git-repos/save")
+async def project_git_repos_save(
+    request: Request,
+    user: dict = Depends(require_permission("project:update")),
+    db: Session = Depends(get_db),
+):
+    """新增/更新项目代码仓库"""
+    body = await request.json()
+    controller = ProjectCodePrdController(body or {})
+    try:
+        ret, err_msg = controller.git_repo_save()
+        if err_msg:
+            return api_failure(40012, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/project/git-repos/delete")
+async def project_git_repos_delete(
+    request: Request,
+    user: dict = Depends(require_permission("project:update")),
+    db: Session = Depends(get_db),
+):
+    """删除项目代码仓库"""
+    body = await request.json()
+    controller = ProjectCodePrdController(body or {})
+    try:
+        ret, err_msg = controller.git_repo_delete()
+        if err_msg:
+            return api_failure(40012, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
 @router.get("/project/code-prd/list")
 async def project_code_prd_list(
     request: Request,

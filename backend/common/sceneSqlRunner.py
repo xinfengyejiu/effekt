@@ -13,7 +13,9 @@ FORBIDDEN_SQL_RE = re.compile(r'\b(DROP|TRUNCATE|ALTER|CREATE\s+USER|GRANT|REVOK
 WRITE_SQL_HEAD_RE = re.compile(r'^\s*(INSERT|UPDATE|DELETE)\b', re.I)
 WRITE_SQL_ANY_RE = re.compile(r'\b(INSERT|UPDATE|DELETE)\b', re.I)
 CTE_HEAD_RE = re.compile(r'^\s*WITH\b', re.I)
+READONLY_HEAD_RE = re.compile(r'^\s*(SELECT|WITH)\b', re.I)
 MAX_SQL_CHARS = 4000
+DEFAULT_READONLY_MAX_ROWS = 100
 
 
 class SceneSqlRunner(object):
@@ -202,6 +204,51 @@ class SceneSqlRunner(object):
                 project_id, db_project, env_key, exc
             )
             return {}, '执行SQL失败！{}'.format(exc)
+
+    @classmethod
+    def ensure_limit(cls, sql_text, max_rows=DEFAULT_READONLY_MAX_ROWS):
+        """若 SQL 无 LIMIT，追加 LIMIT max_rows；已有 LIMIT 则封顶。"""
+        sql = (sql_text or '').rstrip().rstrip(';')
+        try:
+            cap = max(1, min(int(max_rows or DEFAULT_READONLY_MAX_ROWS), DEFAULT_READONLY_MAX_ROWS))
+        except (TypeError, ValueError):
+            cap = DEFAULT_READONLY_MAX_ROWS
+        match = re.search(r'\blimit\s+(\d+)\b', sql, re.I)
+        if match:
+            try:
+                current = int(match.group(1))
+            except (TypeError, ValueError):
+                current = cap
+            if current > cap:
+                sql = re.sub(r'\blimit\s+\d+\b', 'LIMIT {}'.format(cap), sql, count=1, flags=re.I)
+            return sql
+        return '{} LIMIT {}'.format(sql, cap)
+
+    @classmethod
+    def run_readonly(cls, sql_text, db_config=None, env='test', max_rows=DEFAULT_READONLY_MAX_ROWS,
+                     db_project=None, project_id=None):
+        """
+        只读执行：禁写、仅 SELECT/WITH、强制 LIMIT、结果事务 rollback。
+        db_config 优先；否则走 resolve_target_config。
+        """
+        env_key, err = cls.validate_env(env)
+        if err:
+            return {}, err
+        sql, err = cls.validate_sql(sql_text)
+        if err:
+            return {}, err
+        if cls.is_write_sql(sql):
+            return {}, '只读模式禁止写库语句（INSERT/UPDATE/DELETE）'
+        if not READONLY_HEAD_RE.match(sql):
+            return {}, '只读模式仅允许 SELECT 查询'
+        sql = cls.ensure_limit(sql, max_rows=max_rows)
+        return cls.run(
+            db_project=db_project or '',
+            env=env_key,
+            sql_text=sql,
+            project_id=project_id,
+            db_config=db_config,
+        )
 
     @staticmethod
     def _format(value):

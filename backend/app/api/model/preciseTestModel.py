@@ -25,9 +25,25 @@ class PreciseAnalysis(Base):
     ai_impact_json = Column(JSONB, server_default=text("'{}'::jsonb"), comment='AI影响分析结果JSON')
     status = Column(SmallInteger, default=1, comment='状态：1待解析 2已解析Diff 3AI已分析 4已推荐 5执行中 6已完成 7失败')
     risk_level = Column(String(32), comment='风险等级')
+    source_type = Column(String(32), comment='manual_commit/git_url/mr_url/radar')
+    source_ref = Column(String(1024), comment='原始 Git URL 或外部单号')
+    commit_id = Column(String(128), comment='解析出的目标 commit')
+    must_test_assets = Column(JSONB, server_default=text("'{}'::jsonb"), comment='契约/巡检等深链资产 JSON')
     created_by = Column(BigInteger, comment='创建人用户ID')
     created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
     updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'), comment='更新时间')
+    is_delete = Column(SmallInteger, default=0, comment='软删除标记：0未删除 1已删除')
+
+
+class PreciseLineageItem(Base):
+    __tablename__ = 'precise_lineage_item'
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
+    analysis_id = Column(BigInteger, nullable=False, comment='变更分析ID')
+    file_path = Column(String(1024), nullable=False, comment='文件路径')
+    modified_row = Column(Text, nullable=False, comment='用于 git log -S 的有效代码行/锚定行')
+    row_kind = Column(String(32), nullable=False, default='deleted', comment='deleted/context_for_add')
+    histories = Column(JSONB, server_default=text("'[]'::jsonb"), comment='历史提交列表 JSON')
+    created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
     is_delete = Column(SmallInteger, default=0, comment='软删除标记：0未删除 1已删除')
 
 

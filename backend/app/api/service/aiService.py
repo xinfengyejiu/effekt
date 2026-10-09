@@ -1050,17 +1050,50 @@ class AIService:
         return [round(item / norm, 6) for item in vector]
 
     @staticmethod
-    def chat_plain(prompt, system_prompt=None, model_setting=None, read_timeout=45, max_tokens=None):
+    def resolve_model_setting(model_setting=None, user_id=None):
+        """合并显式 model_setting 与用户个人中心偏好（显式字段优先，缺省补全 BYOK）。"""
+        setting = dict(model_setting or {})
+        uid = user_id
+        if uid in (None, ''):
+            try:
+                from flask import g, has_app_context
+                if has_app_context():
+                    uid = getattr(g, 'current_user_id', None)
+            except Exception:
+                uid = None
+        if uid in (None, ''):
+            return setting
+        try:
+            from common.sqlSession import SqlSession
+            from app.api.service.userAiPreferenceService import UserAiPreferenceService
+            wrap = SqlSession()
+            try:
+                pref = UserAiPreferenceService.to_model_setting(wrap, uid)
+                for key, value in (pref or {}).items():
+                    if key not in setting or setting.get(key) in (None, ''):
+                        setting[key] = value
+            finally:
+                wrap.close()
+        except Exception as exc:
+            logger.warning('resolve_model_setting failed user_id=%s err=%s', uid, exc)
+        return setting
+
+    @staticmethod
+    def chat_plain(prompt, system_prompt=None, model_setting=None, read_timeout=45, max_tokens=None, user_id=None):
         """通用短对话（非知识库 RAG）。失败返回 ('', err)。"""
         try:
             from openai import OpenAI
             from config.ai_config import AIConfig
             import httpx
 
-            model_setting = model_setting or {}
-            api_key = AIConfig.get_api_key()
+            model_setting = AIService.resolve_model_setting(model_setting, user_id=user_id)
+            api_key = (
+                model_setting.get('apiKey')
+                or model_setting.get('api_key')
+                or AIConfig.get_api_key()
+            )
             if not api_key or api_key == '请替换为你的Meteor API Key':
-                return '', '未配置API密钥，请在.env中配置METEOR_API_KEY'
+                return '', '未配置API密钥，请在个人中心配置 Key，或在.env中配置METEOR_API_KEY'
             api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
             model = model_setting.get('model') or AIConfig.get_model()
             temperature = float(
@@ -1108,6 +1141,86 @@ class AIService:
         except Exception as e:
             logger.error('chat_plain 调用失败: %s', e)
             return '', '模型调用失败: {}'.format(e)
+
+    @staticmethod
+    def chat_plain_stream(prompt, system_prompt=None, model_setting=None, read_timeout=60, max_tokens=None, user_id=None):
+        """通用短对话流式输出。yield 文本片段；异常时 yield 空并在末尾通过 StopIteration value 不方便，改为 yield {'__error__': err} 单次。
+        正常路径只 yield str 片段。失败时只 yield 一个 dict: {'error': '...'}。
+        """
+        try:
+            from openai import OpenAI
+            from config.ai_config import AIConfig
+            import httpx
+
+            model_setting = AIService.resolve_model_setting(model_setting, user_id=user_id)
+            api_key = (
+                model_setting.get('apiKey')
+                or model_setting.get('api_key')
+                or AIConfig.get_api_key()
+            )
+            if not api_key or api_key == '请替换为你的Meteor API Key':
+                yield {'error': '未配置API密钥，请在个人中心配置 Key，或在.env中配置METEOR_API_KEY'}
+                return
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            model = model_setting.get('model') or AIConfig.get_model()
+            temperature = float(
+                model_setting.get('temperature')
+                if model_setting.get('temperature') is not None
+                else min(float(AIConfig.OPENAI_TEMPERATURE), 0.3)
+            )
+            token_limit = int(
+                max_tokens
+                or model_setting.get('maxTokens')
+                or model_setting.get('max_tokens')
+                or min(int(AIConfig.OPENAI_MAX_TOKENS), 2048)
+            )
+            is_plan_key = '/plan/' in (api_base or '')
+            request_base = AIService._normalize_plan_api_base(api_base) if is_plan_key else AIService._normalize_api_base(api_base)
+            connect_timeout = min(float(AIConfig.CONNECT_TIMEOUT), 20.0)
+            read_timeout = float(read_timeout or 60)
+            timeout = httpx.Timeout(
+                connect=connect_timeout,
+                read=read_timeout,
+                write=read_timeout,
+                pool=connect_timeout,
+            )
+            system_text = (system_prompt or '').strip() or '你是严谨的助手，只按用户要求输出。'
+            user_text = (prompt or '').strip()
+            if not user_text:
+                yield {'error': 'prompt 为空'}
+                return
+            if is_plan_key:
+                plan_prompt = '{}\n\n{}'.format(system_text, user_text)
+                try:
+                    text = (AIService._create_plan_message(api_key, request_base, model, plan_prompt, timeout) or '').strip()
+                except Exception as plan_exc:
+                    yield {'error': '模型调用失败: {}'.format(plan_exc)}
+                    return
+                step = 24
+                for i in range(0, len(text), step):
+                    yield text[i:i + step]
+                return
+            client = OpenAI(api_key=api_key, base_url=request_base, http_client=httpx.Client(timeout=timeout, trust_env=False))
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": user_text},
+                ],
+                max_tokens=token_limit,
+                temperature=temperature,
+                stream=True,
+            )
+            for chunk in stream:
+                try:
+                    delta = chunk.choices[0].delta.content if chunk.choices else None
+                except Exception:
+                    delta = None
+                if delta:
+                    yield delta
+        except Exception as e:
+            logger.error('chat_plain_stream 调用失败: %s', e)
+            yield {'error': '模型调用失败: {}'.format(e)}
         try:
             from openai import OpenAI
             from config.ai_config import AIConfig

@@ -572,6 +572,20 @@ export default new Router({
           }
         },
         {
+          path: '/ai-data-probe',
+          name: 'AiDataProbeWorkspace',
+          components: {
+            Manage: (resolve) => require(['@/components/AiDataProbe/ProbeWorkspace'], resolve)
+          }
+        },
+        {
+          path: '/ai-data-probe/connections',
+          name: 'AiDataProbeConnections',
+          components: {
+            Manage: (resolve) => require(['@/components/AiDataProbe/ConnectionList'], resolve)
+          }
+        },
+        {
           path: '/data-tools/factory',
           name: 'BuilderList',
           components: {

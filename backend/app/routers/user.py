@@ -3,9 +3,10 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import require_permission
+from app.core.security import require_permission, get_current_user
 from app.core.response import api_success, api_failure
 from app.api.controller.userController import UserController
+from app.api.controller.userAiPreferenceController import UserAiPreferenceController
 
 router = APIRouter(prefix="/user", tags=["user"])
 
@@ -125,5 +126,108 @@ async def user_role_assign(
         if err_msg:
             return api_failure(40009, msg=err_msg)
         return api_success(data={'user_id': user_id})
+    finally:
+        controller.close_session()
+
+
+@router.get("/ai-models")
+async def user_ai_models(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """可选 AI 模型列表（个人中心）"""
+    controller = UserAiPreferenceController({})
+    try:
+        ret, err = controller.model_options()
+        if err:
+            return api_failure(40009, msg=err)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.get("/ai-preference")
+async def user_ai_preference_detail(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """当前用户 AI 模型偏好"""
+    controller = UserAiPreferenceController({'userId': user.get('user_id') if user else None})
+    try:
+        # 确保 Flask g 有用户上下文（兼容 controller）
+        from flask import g, has_app_context
+        if has_app_context() and user:
+            g.current_user_id = user.get('user_id')
+        ret, err = controller.preference_detail()
+        if err:
+            return api_failure(40009, msg=err)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/ai-preference/save")
+async def user_ai_preference_save(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """保存当前用户 AI 模型偏好"""
+    body = await request.json()
+    body = body or {}
+    if user and user.get('user_id') is not None:
+        body['userId'] = user.get('user_id')
+    controller = UserAiPreferenceController(body)
+    try:
+        from flask import g, has_app_context
+        if has_app_context() and user:
+            g.current_user_id = user.get('user_id')
+        ret, err = controller.preference_save()
+        if err:
+            return api_failure(40009, msg=err)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/ai-preference/clear")
+async def user_ai_preference_clear(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """恢复使用系统默认模型"""
+    controller = UserAiPreferenceController({'userId': user.get('user_id') if user else None})
+    try:
+        from flask import g, has_app_context
+        if has_app_context() and user:
+            g.current_user_id = user.get('user_id')
+        ret, err = controller.preference_clear()
+        if err:
+            return api_failure(40009, msg=err)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/ai-preference/fetch-models")
+async def user_ai_preference_fetch_models(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """用自定义 Base+Key 拉取 OpenAI 兼容模型列表"""
+    body = await request.json()
+    body = body or {}
+    if user and user.get('user_id') is not None:
+        body['userId'] = user.get('user_id')
+    controller = UserAiPreferenceController(body)
+    try:
+        from flask import g, has_app_context
+        if has_app_context() and user:
+            g.current_user_id = user.get('user_id')
+        ret, err = controller.fetch_models()
+        if err:
+            return api_failure(40009, msg=err)
+        return api_success(data=ret)
     finally:
         controller.close_session()

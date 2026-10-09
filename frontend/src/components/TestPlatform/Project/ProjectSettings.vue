@@ -119,28 +119,41 @@
         </el-tab-pane>
         <el-tab-pane label="代码仓库" name="codePrd">
           <el-alert
-            title="对话造数会拉取此仓库，并结合环境库表结构生成更准确的造数 SQL。"
+            title="AI智能问数 / 对话造数会拉取仓库代码，并结合库表判断查哪张表。支持配置多个仓库（微服务、前后端分离）。"
             type="info"
             :closable="false"
             show-icon
             style="margin-bottom: 12px;" />
-          <div class="code-prd-config">
-            <el-form ref="codePrdConfigForm" :model="codePrdConfig" :rules="codePrdRules" label-width="110px" size="small" class="code-prd-form">
-              <el-form-item label="Git仓库地址" prop="repoUrl">
-                <el-input v-model.trim="codePrdConfig.repoUrl" placeholder="https://example.com/group/repo.git 或 git@example.com:group/repo.git" />
-              </el-form-item>
-              <el-form-item label="默认分支" prop="defaultBranch">
-                <el-select v-model="codePrdConfig.defaultBranch" filterable allow-create default-first-option placeholder="请选择或输入分支" style="width: 100%;" @focus="loadCodePrdBranches">
-                  <el-option v-for="branch in codePrdBranches" :key="branch" :label="branch" :value="branch" />
-                </el-select>
-              </el-form-item>
-              <el-form-item>
-                <el-button size="small" :loading="codePrdBranchLoading" @click="loadCodePrdBranches">获取分支</el-button>
-                <el-button type="primary" size="small" :loading="codePrdConfigSaving" @click="saveCodePrdConfig">保存配置</el-button>
-              </el-form-item>
-            </el-form>
+          <div class="toolbar-wrap" style="margin-bottom: 10px;">
+            <el-button size="small" type="primary" icon="el-icon-plus" @click="openGitRepoDialog()">添加仓库</el-button>
+            <el-button size="small" :loading="gitRepoLoading" @click="loadGitRepos">刷新</el-button>
           </div>
-          <el-divider content-position="left">代码转 PRD（可选）</el-divider>
+          <el-table v-loading="gitRepoLoading" :data="gitRepos" border size="small">
+            <el-table-column label="名称" prop="name" min-width="120" show-overflow-tooltip />
+            <el-table-column label="角色" width="100">
+              <template slot-scope="scope">{{ roleTagLabel(scope.row.roleTag) }}</template>
+            </el-table-column>
+            <el-table-column label="仓库地址" prop="repoUrl" min-width="220" show-overflow-tooltip />
+            <el-table-column label="默认分支" prop="defaultBranch" width="120" show-overflow-tooltip />
+            <el-table-column label="主仓" width="70">
+              <template slot-scope="scope">
+                <el-tag v-if="scope.row.isPrimary" size="mini" type="success">是</el-tag>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="启用" width="70">
+              <template slot-scope="scope">
+                <el-tag size="mini" :type="scope.row.enabled ? 'success' : 'info'">{{ scope.row.enabled ? '是' : '否' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="160" fixed="right">
+              <template slot-scope="scope">
+                <el-button type="text" @click="openGitRepoDialog(scope.row)">编辑</el-button>
+                <el-button type="text" style="color:#F56C6C;" @click="removeGitRepo(scope.row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-divider content-position="left">代码转 PRD（可选，使用主仓）</el-divider>
           <div class="code-prd-prompt-wrap">
             <el-input
               v-model="codePrdPromptAppend"
@@ -311,6 +324,40 @@
       </span>
     </el-dialog>
 
+    <el-dialog :title="gitRepoForm.id ? '编辑代码仓库' : '添加代码仓库'" :visible.sync="gitRepoDialogVisible" width="560px" :close-on-click-modal="false">
+      <el-form ref="gitRepoForm" :model="gitRepoForm" :rules="gitRepoRules" label-width="100px" size="small">
+        <el-form-item label="名称" prop="name">
+          <el-input v-model.trim="gitRepoForm.name" placeholder="如：用户服务 / 前端 / 订单微服务" />
+        </el-form-item>
+        <el-form-item label="角色" prop="roleTag">
+          <el-select v-model="gitRepoForm.roleTag" style="width:100%;">
+            <el-option label="后端" value="backend" />
+            <el-option label="前端" value="frontend" />
+            <el-option label="微服务" value="service" />
+            <el-option label="其他" value="other" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="仓库地址" prop="repoUrl">
+          <el-input v-model.trim="gitRepoForm.repoUrl" placeholder="https://...git 或 git@..." />
+        </el-form-item>
+        <el-form-item label="默认分支" prop="defaultBranch">
+          <el-select v-model="gitRepoForm.defaultBranch" filterable allow-create default-first-option style="width:100%;" @focus="loadBranchesForGitRepoForm">
+            <el-option v-for="branch in codePrdBranches" :key="branch" :label="branch" :value="branch" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="设为主仓">
+          <el-switch v-model="gitRepoForm.isPrimary" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="gitRepoForm.enabled" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+      </el-form>
+      <span slot="footer">
+        <el-button size="small" @click="gitRepoDialogVisible = false">取消</el-button>
+        <el-button size="small" :loading="codePrdBranchLoading" @click="loadBranchesForGitRepoForm">获取分支</el-button>
+        <el-button size="small" type="primary" :loading="gitRepoSaving" @click="saveGitRepo">保存</el-button>
+      </span>
+    </el-dialog>
     <el-dialog title="代码转 PRD" :visible.sync="codePrdDetailVisible" width="780px" class="code-prd-detail-dialog">
       <div v-loading="codePrdDetailLoading">
         <div v-if="codePrdDetail.error_message" class="code-prd-error">{{ codePrdDetail.error_message }}</div>
@@ -344,6 +391,9 @@ import {
   generateProjectCodePrd,
   exportProjectCodePrdDocx,
   saveProjectCodePrdConfig,
+  getProjectGitRepos,
+  saveProjectGitRepo,
+  deleteProjectGitRepo,
   updateEnvironment,
   updateProjectHook
 } from '@/api/projectApi'
@@ -447,6 +497,24 @@ export default {
       },
       codePrdConfig: getDefaultCodePrdConfig(),
       codePrdRules: {
+        repoUrl: [{ required: true, message: '请输入Git仓库地址', trigger: 'blur' }],
+        defaultBranch: [{ required: true, message: '请选择默认分支', trigger: 'change' }]
+      },
+      gitRepos: [],
+      gitRepoLoading: false,
+      gitRepoSaving: false,
+      gitRepoDialogVisible: false,
+      gitRepoForm: {
+        id: null,
+        name: '',
+        roleTag: 'backend',
+        repoUrl: '',
+        defaultBranch: 'master',
+        isPrimary: 0,
+        enabled: 1
+      },
+      gitRepoRules: {
+        name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
         repoUrl: [{ required: true, message: '请输入Git仓库地址', trigger: 'blur' }],
         defaultBranch: [{ required: true, message: '请选择默认分支', trigger: 'change' }]
       },
@@ -669,52 +737,140 @@ export default {
       const map = { 0: 'info', 1: 'warning', 2: 'success', 3: 'danger' }
       return map[Number(status)] || 'info'
     },
-    fetchCodePrdConfig() {
-      return getProjectCodePrdConfig({ projectId: this.getProjectId() }).then(res => {
-        const data = (res && res.data) || res || {}
-        this.codePrdConfig = {
-          repoUrl: data.repo_url || data.repoUrl || '',
-          defaultBranch: data.default_branch || data.defaultBranch || ''
-        }
-        this.codePrdGenerateBranch = this.codePrdConfig.defaultBranch
-      }).catch(() => {
-        this.codePrdConfig = getDefaultCodePrdConfig()
-      })
+    roleTagLabel(tag) {
+      const map = { backend: '后端', frontend: '前端', service: '微服务', other: '其他' }
+      return map[tag] || tag || '-'
     },
-    loadCodePrdBranches() {
-      if (!this.codePrdConfig.repoUrl) {
+    primaryGitRepo() {
+      const list = this.gitRepos || []
+      return list.find(item => Number(item.isPrimary) === 1 && Number(item.enabled) !== 0) || list.find(item => Number(item.enabled) !== 0) || list[0] || null
+    },
+    loadGitRepos() {
+      this.gitRepoLoading = true
+      return getProjectGitRepos({ projectId: this.getProjectId() })
+        .then(res => {
+          const data = (res && res.data) || {}
+          this.gitRepos = data.list || []
+          const primary = this.primaryGitRepo()
+          if (primary) {
+            this.codePrdConfig = {
+              repoUrl: primary.repoUrl || '',
+              defaultBranch: primary.defaultBranch || 'master'
+            }
+            if (!this.codePrdGenerateBranch) {
+              this.codePrdGenerateBranch = primary.defaultBranch || ''
+            }
+          }
+        })
+        .catch(() => { this.gitRepos = [] })
+        .finally(() => { this.gitRepoLoading = false })
+    },
+    fetchCodePrdConfig() {
+      return this.loadGitRepos()
+    },
+    openGitRepoDialog(row) {
+      if (row) {
+        this.gitRepoForm = {
+          id: row.legacy ? null : row.id,
+          name: row.name || '',
+          roleTag: row.roleTag || 'backend',
+          repoUrl: row.repoUrl || '',
+          defaultBranch: row.defaultBranch || 'master',
+          isPrimary: Number(row.isPrimary) ? 1 : 0,
+          enabled: row.enabled == null ? 1 : Number(row.enabled)
+        }
+      } else {
+        this.gitRepoForm = {
+          id: null,
+          name: '',
+          roleTag: 'backend',
+          repoUrl: '',
+          defaultBranch: 'master',
+          isPrimary: this.gitRepos.length ? 0 : 1,
+          enabled: 1
+        }
+      }
+      this.gitRepoDialogVisible = true
+    },
+    loadBranchesForGitRepoForm() {
+      if (!this.gitRepoForm.repoUrl) {
         this.$message.warning('请先填写Git仓库地址')
         return
       }
       this.codePrdBranchLoading = true
-      getProjectCodePrdBranches({ projectId: this.getProjectId(), repoUrl: this.codePrdConfig.repoUrl })
+      getProjectCodePrdBranches({ projectId: this.getProjectId(), repoUrl: this.gitRepoForm.repoUrl })
         .then(res => {
           const data = (res && res.data) || res || {}
           this.codePrdBranches = data.list || data.items || []
-          if (!this.codePrdGenerateBranch && this.codePrdConfig.defaultBranch) {
-            this.codePrdGenerateBranch = this.codePrdConfig.defaultBranch
+        })
+        .finally(() => { this.codePrdBranchLoading = false })
+    },
+    loadCodePrdBranches() {
+      const primary = this.primaryGitRepo()
+      const repoUrl = (primary && primary.repoUrl) || this.codePrdConfig.repoUrl
+      if (!repoUrl) {
+        this.$message.warning('请先配置代码仓库')
+        return
+      }
+      this.codePrdBranchLoading = true
+      getProjectCodePrdBranches({ projectId: this.getProjectId(), repoUrl })
+        .then(res => {
+          const data = (res && res.data) || res || {}
+          this.codePrdBranches = data.list || data.items || []
+          if (!this.codePrdGenerateBranch && primary && primary.defaultBranch) {
+            this.codePrdGenerateBranch = primary.defaultBranch
           }
         })
-        .finally(() => {
-          this.codePrdBranchLoading = false
+        .finally(() => { this.codePrdBranchLoading = false })
+    },
+    saveGitRepo() {
+      this.$refs.gitRepoForm.validate(valid => {
+        if (!valid) return
+        this.gitRepoSaving = true
+        const payload = {
+          projectId: Number(this.getProjectId()),
+          name: this.gitRepoForm.name,
+          roleTag: this.gitRepoForm.roleTag,
+          repoUrl: this.gitRepoForm.repoUrl,
+          defaultBranch: this.gitRepoForm.defaultBranch,
+          isPrimary: this.gitRepoForm.isPrimary,
+          enabled: this.gitRepoForm.enabled
+        }
+        if (this.gitRepoForm.id) payload.id = this.gitRepoForm.id
+        saveProjectGitRepo(payload)
+          .then(() => {
+            this.$message.success('仓库已保存')
+            this.gitRepoDialogVisible = false
+            this.loadGitRepos()
+          })
+          .finally(() => { this.gitRepoSaving = false })
+      })
+    },
+    removeGitRepo(row) {
+      if (row.legacy) {
+        this.$message.warning('请先编辑并保存该仓库到新列表后再删除')
+        return
+      }
+      this.$confirm('确认删除该代码仓库？', '提示', { type: 'warning' })
+        .then(() => deleteProjectGitRepo({ id: row.id }))
+        .then(() => {
+          this.$message.success('已删除')
+          this.loadGitRepos()
         })
+        .catch(() => {})
     },
     saveCodePrdConfig() {
-      this.$refs.codePrdConfigForm.validate(valid => {
-        if (!valid) return
-        this.codePrdConfigSaving = true
-        saveProjectCodePrdConfig({
-          projectId: Number(this.getProjectId()),
-          repoUrl: this.codePrdConfig.repoUrl,
-          defaultBranch: this.codePrdConfig.defaultBranch
-        }).then(() => {
-          this.$message.success('配置已保存')
-          this.codePrdGenerateBranch = this.codePrdConfig.defaultBranch
-          this.loadCodePrdBranches()
-        }).finally(() => {
-          this.codePrdConfigSaving = false
-        })
-      })
+      // 兼容旧入口：保存到多仓列表
+      this.gitRepoForm = {
+        id: null,
+        name: '默认仓库',
+        roleTag: 'backend',
+        repoUrl: this.codePrdConfig.repoUrl,
+        defaultBranch: this.codePrdConfig.defaultBranch || 'master',
+        isPrimary: 1,
+        enabled: 1
+      }
+      this.saveGitRepo()
     },
     scheduleCodePrdRefresh() {
       if (this.codePrdRefreshTimer) {
@@ -798,8 +954,10 @@ export default {
       })
     },
     generateCodePrd() {
-      if (!this.codePrdConfig.repoUrl) {
-        this.$message.warning('请先配置Git仓库地址')
+      const primary = this.primaryGitRepo()
+      const repoUrl = (primary && primary.repoUrl) || this.codePrdConfig.repoUrl
+      if (!repoUrl) {
+        this.$message.warning('请先添加并配置代码仓库')
         return
       }
       if (!this.codePrdGenerateBranch) {
@@ -809,7 +967,7 @@ export default {
       this.codePrdGenerating = true
       generateProjectCodePrd({
         projectId: Number(this.getProjectId()),
-        repoUrl: this.codePrdConfig.repoUrl,
+        repoUrl,
         branch: this.codePrdGenerateBranch,
         promptAppend: this.codePrdPromptAppend
       }).then(res => {

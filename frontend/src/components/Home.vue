@@ -73,7 +73,8 @@
                 {{ displayName }}<i class="el-icon-arrow-down el-icon--right"></i>
               </span>
               <el-dropdown-menu slot="dropdown">
-                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                <el-dropdown-item command="profile">个人中心</el-dropdown-item>
+                <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </el-dropdown>
             <span v-else class="login-label" @click="goLogin">登录</span>
@@ -85,11 +86,83 @@
       </el-container>
     </el-container>
     <quality-assistant-panel />
+
+    <el-dialog title="个人中心" :visible.sync="profileVisible" width="580px" :close-on-click-modal="false" @open="loadProfile">
+      <div class="profile-user">
+        <div class="profile-name">{{ displayName }}</div>
+        <div class="profile-sub">登录后可选择模型，或配置自己的供应商 / Key / URL</div>
+      </div>
+      <el-form label-width="100px" size="small" v-loading="profileLoading">
+        <el-form-item label="供应商">
+          <el-select v-model="profileForm.provider" placeholder="选择供应商" style="width:100%;" @change="onProviderChange">
+            <el-option
+              v-for="item in providerOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+          <div class="profile-hint" style="margin-top:4px;">{{ currentProviderHint }}</div>
+        </el-form-item>
+        <template v-if="isCustomProvider">
+          <el-form-item label="API Base">
+            <el-input v-model="profileForm.apiBase" placeholder="https://api.openai.com/v1" clearable />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input
+              v-model="profileForm.apiKey"
+              type="password"
+              show-password
+              :placeholder="profileForm.hasApiKey ? '已保存，留空或 ****** 表示不修改' : '填写你的 API Key'"
+              clearable
+            />
+          </el-form-item>
+          <el-form-item label="获取模型">
+            <el-button size="mini" type="primary" plain :loading="profileFetching" @click="fetchRemoteModels">拉取模型列表</el-button>
+            <span class="profile-hint" style="margin-left:8px;">调用供应商 /models 接口</span>
+          </el-form-item>
+        </template>
+        <el-form-item label="当前模型">
+          <el-select v-model="profileForm.model" filterable allow-create default-first-option placeholder="选择或输入模型名" style="width:100%;">
+            <el-option
+              v-for="item in modelOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="系统默认">
+          <span class="profile-default">{{ systemDefaultModel || '-' }}</span>
+          <el-tag v-if="profileForm.usingDefault" size="mini" type="info" style="margin-left:8px;">使用中</el-tag>
+        </el-form-item>
+        <el-form-item label="说明">
+          <div class="profile-hint" v-if="isCustomProvider">
+            保存后，智能问数、质量助手等通用对话将使用你配置的供应商、Key 与模型。
+          </div>
+          <div class="profile-hint" v-else>
+            保存后，智能问数、质量助手等走通用对话的能力将优先使用你选择的模型；密钥仍使用平台统一配置。
+          </div>
+        </el-form-item>
+      </el-form>
+      <span slot="footer">
+        <el-button size="small" :loading="profileSaving" @click="resetProfileModel">恢复默认</el-button>
+        <el-button size="small" @click="profileVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="profileSaving" @click="saveProfileModel">保存</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import QualityAssistantPanel from '@/components/QualityAssistant/QualityAssistantPanel.vue'
+import {
+  clearUserAiPreference,
+  fetchUserAiModels,
+  getUserAiModels,
+  getUserAiPreference,
+  saveUserAiPreference
+} from '@/api/userAiPreferenceApi'
 
 export default {
   name: 'Home',
@@ -98,6 +171,22 @@ export default {
     return {
       isCollapse: false,
       systemName: '效能平台',
+      profileVisible: false,
+      profileLoading: false,
+      profileSaving: false,
+      profileFetching: false,
+      modelOptions: [],
+      providerOptions: [],
+      systemDefaultModel: '',
+      profileForm: {
+        provider: 'platform',
+        model: '',
+        apiBase: '',
+        apiKey: '',
+        hasApiKey: false,
+        useCustom: false,
+        usingDefault: true
+      },
       uiTheme: localStorage.getItem('uiTheme') || 'dark'
     }
   },
@@ -105,6 +194,13 @@ export default {
     this.applyTheme()
   },
   computed: {
+    isCustomProvider() {
+      return this.profileForm.provider && this.profileForm.provider !== 'platform'
+    },
+    currentProviderHint() {
+      const hit = (this.providerOptions || []).find(x => x.value === this.profileForm.provider)
+      return (hit && hit.hint) || ''
+    },
     currentUser() {
       return this.$store.state.currentUser
     },
@@ -117,7 +213,7 @@ export default {
         return [homeMenu]
       }
       const filteredMenus = this.filterMenus(this.userMenus)
-      const menus = this.renameTestPlatformToCycle(filteredMenus)
+      const menus = this.renameMenuDisplayNames(filteredMenus)
       const withSkillMenu = this.injectBusinessSkillConfigMenu(menus)
       const withAiMenu = this.injectAiPlatformMenu(withSkillMenu)
       const withAiReviewMenu = this.injectAiReviewMenu(withAiMenu)
@@ -128,7 +224,8 @@ export default {
       const withMobileAutomationMenu = this.injectMobileAutomationMenu(withPerformanceMenu)
       const withInspectionMenu = this.injectInspectionMenu(withMobileAutomationMenu)
       const withContractMenu = this.injectContractMenu(withInspectionMenu)
-      const regroupedMenus = this.regroupProductProjectMenus(withContractMenu)
+      const withAiDataProbeMenu = this.injectAiDataProbeMenu(withContractMenu)
+      const regroupedMenus = this.regroupProductProjectMenus(withAiDataProbeMenu)
       const sorted = this.sortMenusByProductOrder(regroupedMenus)
       const hasHome = sorted.some(menu => menu.path === '/effekt' || menu.name === '首页')
       if (hasHome) {
@@ -354,10 +451,15 @@ export default {
       })
     },
     renameTestPlatformToCycle(menus) {
+      return this.renameMenuDisplayNames(menus)
+    },
+    renameMenuDisplayNames(menus) {
       return (menus || []).map(item => {
-        const name = item.name === '测试平台' ? '用例周期' : item.name
+        let name = item.name
+        if (name === '测试平台') name = '用例周期'
+        if (name === 'AI对号查数') name = 'AI智能问数'
         const children = item.children && item.children.length
-          ? this.renameTestPlatformToCycle(item.children)
+          ? this.renameMenuDisplayNames(item.children)
           : item.children
         return Object.assign({}, item, { name, children })
       })
@@ -709,6 +811,46 @@ export default {
       }
       return result
     },
+    injectAiDataProbeMenu(menus) {
+      // 库表迁移已写入 ai_data_probe；仅在整棵菜单树都没有时才注入，避免与 DB 菜单重复。
+      const leaf = {
+        name: 'AI智能问数',
+        path: '/ai-data-probe',
+        icon: 'el-icon-search',
+        menuId: '__inject_ai_data_probe__',
+        id: '__inject_ai_data_probe__',
+        visible: 1,
+        status: 1,
+        children: []
+      }
+      const isProbeMenu = (item) => {
+        if (!item) return false
+        const path = String(item.path || '')
+        const name = String(item.name || '')
+        const code = String(item.code || '')
+        return path === '/ai-data-probe' || name === 'AI智能问数' || name === 'AI对号查数' || code === 'ai_data_probe' ||
+          item.menuId === leaf.menuId || item.id === leaf.id
+      }
+      const existsDeep = (list) => (list || []).some(item =>
+        isProbeMenu(item) || existsDeep(item.children)
+      )
+      if (existsDeep(menus)) return menus || []
+      const attachToDataTools = (list) => (list || []).map(item => {
+        const path = String((item && item.path) || '')
+        const name = String((item && item.name) || '')
+        const isDataTools = path === '/data-tools' || name === '造数工具' || item.code === 'data_tools'
+        if (!isDataTools) {
+          if (item.children && item.children.length) {
+            return Object.assign({}, item, { children: attachToDataTools(item.children) })
+          }
+          return item
+        }
+        return Object.assign({}, item, { children: (item.children || []).concat([leaf]) })
+      })
+      let next = attachToDataTools(menus || [])
+      if (!existsDeep(next)) next = next.concat([leaf])
+      return next
+    },
     injectContractMenu(menus) {
       const makeChildren = () => [
         { name: '契约套件', path: '/contract/suites', icon: 'el-icon-document-checked', menuId: '__inject_contract_suites__', id: '__inject_contract_suites__', visible: 1, status: 1, children: [] },
@@ -831,9 +973,10 @@ export default {
         path.indexOf('/performance') === 0 ||
         path.indexOf('/mobile-automation') === 0 ||
         path.indexOf('/weak-network') === 0 ||
+        path.indexOf('/ai-data-probe') === 0 ||
         path.indexOf('/mock') === 0 ||
         path.indexOf('/contract') === 0 ||
-        /造数|造数工具|造数工厂|造数结果历史|数据库造数|性能测试|移动自动化|弱网配置|弱网AI任务|mock服务|Mock服务|契约守护|契约测试|探索Session|探索会话|聊天问题导入/.test(name)
+        /造数|造数工具|造数工厂|造数结果历史|数据库造数|性能测试|移动自动化|弱网配置|弱网AI任务|AI智能问数|AI对号查数|mock服务|Mock服务|契约守护|契约测试|探索Session|探索会话|聊天问题导入/.test(name)
       ) {
         return 'support'
       }
@@ -878,6 +1021,7 @@ export default {
           if (path.indexOf('/data-tools/factory/task') === 0 || name === '造数结果历史') return 20
           if (path.indexOf('/explore-session') === 0 || name === '探索Session') return 30
           if (path.indexOf('/chat-issue') === 0 || name === '聊天问题导入') return 35
+          if (path.indexOf('/ai-data-probe') === 0 || name === 'AI智能问数' || name === 'AI对号查数') return 36
           if (path.indexOf('/data-tools') === 0 || path.indexOf('/create') === 0 || /造数/.test(name)) return 15
           if (path.indexOf('/performance') === 0 || name === '性能测试') return 40
           if (path.indexOf('/mobile-automation') === 0 || name === '移动自动化') return 45
@@ -918,6 +1062,7 @@ export default {
         if (path.indexOf('/data-tools/factory/task') === 0 || name === '造数结果历史' || /造数结果/.test(name)) return 20
         if (path.indexOf('/explore-session') === 0 || name === '探索Session' || /探索会话/.test(name)) return 30
         if (path.indexOf('/chat-issue') === 0 || name === '聊天问题导入') return 40
+        if (path.indexOf('/ai-data-probe') === 0 || name === 'AI智能问数' || name === 'AI对号查数') return 45
         return 90
       }
       return (children || [])
@@ -974,7 +1119,7 @@ export default {
         n === 'AI工作量预估' ||
         n === 'Bug管理' ||
         n.indexOf('Bug') === 0 ||
-        /造数|造数工具|造数工厂|造数结果历史|数据库造数|需求问答|性能测试|移动自动化|弱网配置|弱网AI任务|mock服务|Mock服务|精准测试|测试资产治理|探索Session|聊天问题导入|AI工作量预估|巡检管理/.test(n)
+        /造数|造数工具|造数工厂|造数结果历史|数据库造数|需求问答|性能测试|移动自动化|弱网配置|弱网AI任务|AI智能问数|AI对号查数|mock服务|Mock服务|精准测试|测试资产治理|探索Session|聊天问题导入|AI工作量预估|巡检管理/.test(n)
       ) {
         return 50
       }
@@ -994,6 +1139,10 @@ export default {
         .map(x => x.m)
     },
     handleUserCommand(command) {
+      if (command === 'profile') {
+        this.profileVisible = true
+        return
+      }
       if (command === 'logout') {
         localStorage.removeItem('authUser')
         localStorage.removeItem('accessToken')
@@ -1003,6 +1152,123 @@ export default {
         this.$message.success('已退出登录')
         this.$router.push({ name: 'login' })
       }
+    },
+    loadProfile() {
+      this.profileLoading = true
+      Promise.all([getUserAiModels(), getUserAiPreference()])
+        .then(([modelsRes, prefRes]) => {
+          const models = (modelsRes && modelsRes.data) || {}
+          const pref = (prefRes && prefRes.data) || {}
+          this.modelOptions = models.list || []
+          this.providerOptions = models.providers || []
+          this.systemDefaultModel = models.defaultModel || pref.systemDefaultModel || ''
+          this.profileForm = {
+            provider: pref.provider || 'platform',
+            model: pref.model || this.systemDefaultModel || '',
+            apiBase: pref.apiBase || '',
+            apiKey: pref.apiKey || '',
+            hasApiKey: !!pref.hasApiKey,
+            useCustom: !!pref.useCustom,
+            usingDefault: !!pref.usingDefault
+          }
+        })
+        .catch(() => {})
+        .finally(() => { this.profileLoading = false })
+    },
+    onProviderChange(value) {
+      const hit = (this.providerOptions || []).find(x => x.value === value)
+      if (value === 'platform') {
+        this.profileForm.useCustom = false
+        return
+      }
+      this.profileForm.useCustom = true
+      if (hit && hit.apiBase && !this.profileForm.apiBase) {
+        this.profileForm.apiBase = hit.apiBase
+      }
+    },
+    fetchRemoteModels() {
+      if (!this.profileForm.apiBase) {
+        this.$message.warning('请先填写 API Base URL')
+        return
+      }
+      const key = this.profileForm.apiKey
+      if (!key && !this.profileForm.hasApiKey) {
+        this.$message.warning('请先填写 API Key')
+        return
+      }
+      this.profileFetching = true
+      const payload = {
+        apiBase: this.profileForm.apiBase,
+        apiKey: key && key !== '******' ? key : undefined
+      }
+      fetchUserAiModels(payload)
+        .then((res) => {
+          const list = ((res && res.data) || {}).list || []
+          if (!list.length) {
+            this.$message.warning('未获取到模型')
+            return
+          }
+          const merged = [...(this.modelOptions || [])]
+          const seen = new Set(merged.map(x => x.value))
+          list.forEach((item) => {
+            const value = item.value || item.id || item
+            if (!value || seen.has(value)) return
+            seen.add(value)
+            merged.push({ value, label: item.label || value })
+          })
+          this.modelOptions = merged
+          if (!this.profileForm.model && list[0]) {
+            this.profileForm.model = list[0].value || list[0].id || list[0]
+          }
+          this.$message.success(`已获取 ${list.length} 个模型`)
+        })
+        .finally(() => { this.profileFetching = false })
+    },
+    saveProfileModel() {
+      if (!this.profileForm.model) {
+        this.$message.warning('请选择模型')
+        return
+      }
+      if (this.isCustomProvider && !this.profileForm.apiBase) {
+        this.$message.warning('请填写 API Base URL')
+        return
+      }
+      this.profileSaving = true
+      const payload = {
+        provider: this.profileForm.provider || 'platform',
+        model: this.profileForm.model,
+        useCustom: this.isCustomProvider,
+        apiBase: this.isCustomProvider ? this.profileForm.apiBase : '',
+        apiKey: this.isCustomProvider ? this.profileForm.apiKey : ''
+      }
+      saveUserAiPreference(payload)
+        .then((res) => {
+          const pref = (res && res.data) || {}
+          this.$message.success('偏好已保存')
+          this.profileForm.usingDefault = !!pref.usingDefault
+          this.profileForm.hasApiKey = !!pref.hasApiKey
+          this.profileForm.apiKey = pref.apiKey || (pref.hasApiKey ? '******' : '')
+          this.profileVisible = false
+        })
+        .finally(() => { this.profileSaving = false })
+    },
+    resetProfileModel() {
+      this.profileSaving = true
+      clearUserAiPreference()
+        .then((res) => {
+          const pref = (res && res.data) || {}
+          this.profileForm = {
+            provider: pref.provider || 'platform',
+            model: pref.model || this.systemDefaultModel || '',
+            apiBase: pref.apiBase || '',
+            apiKey: pref.apiKey || '',
+            hasApiKey: !!pref.hasApiKey,
+            useCustom: !!pref.useCustom,
+            usingDefault: true
+          }
+          this.$message.success('已恢复系统默认')
+        })
+        .finally(() => { this.profileSaving = false })
     }
   }
 }
@@ -1261,6 +1527,12 @@ export default {
   color: #dbeafe;
   cursor: pointer;
 }
+
+.profile-user { margin-bottom: 16px; }
+.profile-name { font-size: 16px; font-weight: 600; color: #303133; }
+.profile-sub { margin-top: 4px; font-size: 12px; color: #909399; }
+.profile-default { color: #606266; font-size: 13px; }
+.profile-hint { color: #909399; font-size: 12px; line-height: 1.5; }
 
 .login-label {
   color: #67e8f9;

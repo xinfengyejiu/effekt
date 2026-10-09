@@ -168,6 +168,30 @@ export function getProjectCodePrdBranches(params) {
   })
 }
 
+export function getProjectGitRepos(params) {
+  return request({
+    url: '/project/git-repos',
+    method: 'get',
+    params: params || {}
+  })
+}
+
+export function saveProjectGitRepo(data) {
+  return request({
+    url: '/project/git-repos/save',
+    method: 'post',
+    data: data || {}
+  })
+}
+
+export function deleteProjectGitRepo(data) {
+  return request({
+    url: '/project/git-repos/delete',
+    method: 'post',
+    data: data || {}
+  })
+}
+
 export function getProjectCodePrdList(params) {
   return request({
     url: '/project/code-prd/list',

@@ -178,6 +178,7 @@ from app.routers import (
     ai_agent, ai_tool, ai_mcp, ai_flow, ai_task, ai_report,
     ai_review, ai_workload_estimate, inspection, contract, quality_assistant,
     impact_radar, explore_session, chat_issue, weak_network, weak_network_ai,
+    ai_data_probe,
 )
 
 _API_PREFIX = "/it/api"
@@ -218,6 +219,7 @@ app.include_router(explore_session.router, prefix=_API_PREFIX)
 app.include_router(chat_issue.router, prefix=_API_PREFIX)
 app.include_router(weak_network.router, prefix=_API_PREFIX)
 app.include_router(weak_network_ai.router, prefix=_API_PREFIX)
+app.include_router(ai_data_probe.router, prefix=_API_PREFIX)
 
 
 if __name__ == "__main__":

@@ -3,9 +3,13 @@
     <button
       v-show="!visible"
       class="qa-fab"
+      :class="{ 'is-dragging': fabDragging }"
       type="button"
-      title="质量助手"
-      @click="open"
+      title="质量助手（可拖动）"
+      :style="fabStyle"
+      @mousedown="onFabDown"
+      @touchstart.prevent="onFabTouchStart"
+      @click="onFabClick"
     >
       <i class="el-icon-chat-dot-round"></i>
       <span>质量助手</span>
@@ -176,6 +180,7 @@ import {
 } from '@/utils/lastProductProjectCache'
 
 const SESSION_CACHE_KEY = 'effekt_qa_assistant_session'
+const FAB_POS_KEY = 'effekt_qa_fab_pos'
 
 export default {
   name: 'QualityAssistant',
@@ -199,13 +204,138 @@ export default {
       productOptions: [],
       projectOptions: [],
       citationPreview: 2,
-      citationExpanded: {}
+      citationExpanded: {},
+      fabPos: null,
+      fabDragging: false,
+      fabMoved: false,
+      _fabStart: null
+    }
+  },
+  computed: {
+    fabStyle () {
+      if (!this.fabPos) return {}
+      return {
+        left: `${this.fabPos.left}px`,
+        top: `${this.fabPos.top}px`,
+        right: 'auto',
+        bottom: 'auto'
+      }
     }
   },
   mounted () {
+    this.restoreFabPos()
     this.restoreSessionQuietly()
+    window.addEventListener('resize', this.onFabResize)
+  },
+  beforeDestroy () {
+    this.unbindFabDrag()
+    window.removeEventListener('resize', this.onFabResize)
   },
   methods: {
+    restoreFabPos () {
+      try {
+        const raw = localStorage.getItem(FAB_POS_KEY)
+        if (!raw) return
+        const o = JSON.parse(raw)
+        if (o && typeof o.left === 'number' && typeof o.top === 'number') {
+          this.fabPos = this.clampFabPos(o.left, o.top)
+        }
+      } catch (e) { /* ignore */ }
+    },
+    saveFabPos () {
+      if (!this.fabPos) return
+      try {
+        localStorage.setItem(FAB_POS_KEY, JSON.stringify(this.fabPos))
+      } catch (e) { /* ignore */ }
+    },
+    clampFabPos (left, top) {
+      const el = this.$el && this.$el.querySelector('.qa-fab')
+      const w = (el && el.offsetWidth) || 120
+      const h = (el && el.offsetHeight) || 44
+      const maxL = Math.max(8, window.innerWidth - w - 8)
+      const maxT = Math.max(8, window.innerHeight - h - 8)
+      return {
+        left: Math.min(maxL, Math.max(8, left)),
+        top: Math.min(maxT, Math.max(8, top))
+      }
+    },
+    ensureFabPosFromEl (el) {
+      if (this.fabPos || !el) return
+      const rect = el.getBoundingClientRect()
+      this.fabPos = { left: rect.left, top: rect.top }
+    },
+    onFabDown (e) {
+      if (e.button !== 0) return
+      e.preventDefault()
+      this.ensureFabPosFromEl(e.currentTarget)
+      this.fabDragging = true
+      this.fabMoved = false
+      this._fabStart = {
+        x: e.clientX,
+        y: e.clientY,
+        left: this.fabPos.left,
+        top: this.fabPos.top
+      }
+      document.addEventListener('mousemove', this.onFabMove)
+      document.addEventListener('mouseup', this.onFabUp)
+    },
+    onFabTouchStart (e) {
+      const t = e.touches && e.touches[0]
+      if (!t) return
+      this.ensureFabPosFromEl(e.currentTarget)
+      this.fabDragging = true
+      this.fabMoved = false
+      this._fabStart = {
+        x: t.clientX,
+        y: t.clientY,
+        left: this.fabPos.left,
+        top: this.fabPos.top
+      }
+      document.addEventListener('touchmove', this.onFabTouchMove, { passive: false })
+      document.addEventListener('touchend', this.onFabUp)
+      document.addEventListener('touchcancel', this.onFabUp)
+    },
+    onFabMove (e) {
+      if (!this.fabDragging || !this._fabStart) return
+      const dx = e.clientX - this._fabStart.x
+      const dy = e.clientY - this._fabStart.y
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) this.fabMoved = true
+      this.fabPos = this.clampFabPos(this._fabStart.left + dx, this._fabStart.top + dy)
+    },
+    onFabTouchMove (e) {
+      if (!this.fabDragging || !this._fabStart) return
+      const t = e.touches && e.touches[0]
+      if (!t) return
+      e.preventDefault()
+      const dx = t.clientX - this._fabStart.x
+      const dy = t.clientY - this._fabStart.y
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) this.fabMoved = true
+      this.fabPos = this.clampFabPos(this._fabStart.left + dx, this._fabStart.top + dy)
+    },
+    onFabUp () {
+      this.unbindFabDrag()
+      this.fabDragging = false
+      if (this.fabMoved) this.saveFabPos()
+      this._fabStart = null
+    },
+    unbindFabDrag () {
+      document.removeEventListener('mousemove', this.onFabMove)
+      document.removeEventListener('mouseup', this.onFabUp)
+      document.removeEventListener('touchmove', this.onFabTouchMove)
+      document.removeEventListener('touchend', this.onFabUp)
+      document.removeEventListener('touchcancel', this.onFabUp)
+    },
+    onFabResize () {
+      if (!this.fabPos) return
+      this.fabPos = this.clampFabPos(this.fabPos.left, this.fabPos.top)
+    },
+    onFabClick () {
+      if (this.fabMoved) {
+        this.fabMoved = false
+        return
+      }
+      this.open()
+    },
     isCitationExpanded (idx) {
       return !!this.citationExpanded[idx]
     },
@@ -480,14 +610,21 @@ export default {
   gap: 8px;
   padding: 12px 16px;
   border-radius: 999px;
-  cursor: pointer;
+  cursor: grab;
   font-size: 14px;
   border: 1px solid rgba(56, 189, 248, 0.35);
   background: linear-gradient(135deg, #0ea5e9, #0369a1);
   color: #f8fafc;
   box-shadow: 0 10px 30px rgba(3, 105, 161, 0.35);
+  user-select: none;
+  touch-action: none;
 }
 .qa-fab:hover { filter: brightness(1.06); }
+.qa-fab.is-dragging {
+  cursor: grabbing;
+  filter: brightness(1.08);
+  box-shadow: 0 14px 36px rgba(3, 105, 161, 0.45);
+}
 .qa-panel {
   height: 100%;
   display: flex;

@@ -73,6 +73,30 @@ class SceneSchemaProbe(object):
         if err or not config:
             meta['schemaError'] = err or '无法解析环境库连接'
             return '', meta
+        return cls.build_hint_from_db_config(config, user_text, meta=meta)
+
+    @classmethod
+    def build_hint_from_db_config(cls, db_config, user_text, meta=None):
+        """使用已解析的库连接探查表结构，返回 (hint_text, meta)。"""
+        meta = meta if isinstance(meta, dict) else {
+            'matchedTables': [],
+            'tableCount': 0,
+            'schemaError': '',
+        }
+        config = SceneSqlRunner.normalize_db_config(db_config) if isinstance(db_config, dict) else None
+        if not config:
+            # 兼容已是 normalize 后的结构
+            if isinstance(db_config, dict) and db_config.get('host') and db_config.get('database'):
+                config = {
+                    'host': db_config['host'],
+                    'port': db_config.get('port'),
+                    'user': db_config.get('user') or db_config.get('username'),
+                    'password': db_config.get('password') or '',
+                    'database': db_config.get('database') or db_config.get('database_name'),
+                }
+            else:
+                meta['schemaError'] = '数据库连接配置不完整'
+                return '', meta
 
         conn = None
         try:
@@ -112,9 +136,105 @@ class SceneSchemaProbe(object):
             hint = cls._format_hint(details, keywords)
             return hint, meta
         except Exception as exc:
-            logger.warning('SceneSchemaProbe 失败 project_id=%s env=%s err=%s', project_id, env, exc)
+            logger.warning('SceneSchemaProbe 失败 err=%s', exc)
             meta['schemaError'] = '探查表结构失败：{}'.format(exc)
             return '', meta
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    @classmethod
+    def _normalize_config(cls, db_config):
+        config = SceneSqlRunner.normalize_db_config(db_config) if isinstance(db_config, dict) else None
+        if config:
+            return config
+        if isinstance(db_config, dict) and db_config.get('host') and db_config.get('database'):
+            return {
+                'host': db_config['host'],
+                'port': db_config.get('port'),
+                'user': db_config.get('user') or db_config.get('username'),
+                'password': db_config.get('password') or '',
+                'database': db_config.get('database') or db_config.get('database_name'),
+            }
+        return None
+
+    @classmethod
+    def list_tables_from_db_config(cls, db_config, keyword=None, with_columns=False):
+        """列出业务库全部可用表；可选关键字过滤、附带列信息。返回 (data, err)。"""
+        config = cls._normalize_config(db_config)
+        if not config:
+            return {}, '数据库连接配置不完整'
+        keyword = (keyword or '').strip().lower()
+        conn = None
+        try:
+            conn = psycopg2.connect(
+                host=config['host'],
+                port=int(config['port']),
+                user=config['user'],
+                password=config['password'],
+                dbname=config['database'],
+                connect_timeout=CONNECT_TIMEOUT_SEC,
+            )
+            conn.autocommit = True
+            tables = cls._list_tables(conn)
+            if keyword:
+                tables = [t for t in tables if keyword in t.lower()]
+            items = []
+            for name in tables:
+                item = {'name': name}
+                if with_columns:
+                    item['columns'] = cls._list_columns(conn, name)
+                items.append(item)
+            return {
+                'list': items,
+                'total': len(items),
+                'database': config.get('database') or '',
+            }, ''
+        except Exception as exc:
+            logger.warning('SceneSchemaProbe.list_tables failed err=%s', exc)
+            return {}, '拉取表列表失败：{}'.format(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    @classmethod
+    def list_table_columns_from_db_config(cls, db_config, table_name):
+        """返回单表列信息 (data, err)。"""
+        table_name = (table_name or '').strip()
+        if not table_name:
+            return {}, 'tableName 不能为空'
+        if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', table_name):
+            return {}, '表名非法'
+        config = cls._normalize_config(db_config)
+        if not config:
+            return {}, '数据库连接配置不完整'
+        conn = None
+        try:
+            conn = psycopg2.connect(
+                host=config['host'],
+                port=int(config['port']),
+                user=config['user'],
+                password=config['password'],
+                dbname=config['database'],
+                connect_timeout=CONNECT_TIMEOUT_SEC,
+            )
+            conn.autocommit = True
+            cols = cls._list_columns(conn, table_name)
+            fks = cls._list_foreign_keys(conn, table_name)
+            return {
+                'table': table_name,
+                'columns': cols,
+                'foreignKeys': fks,
+            }, ''
+        except Exception as exc:
+            logger.warning('SceneSchemaProbe.list_table_columns failed err=%s', exc)
+            return {}, '拉取表字段失败：{}'.format(exc)
         finally:
             if conn is not None:
                 try:

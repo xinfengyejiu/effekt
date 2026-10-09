@@ -43,6 +43,18 @@ class ProjectCodePrdController(BaseCrudController):
             return [], 'repoUrl 为必传参数'
         return ProjectCodePrdService.list_remote_branches(repo_url)
 
+    def git_repo_list(self):
+        project_id = self._get(self.req_data, 'projectId', 'project_id')
+        if not project_id:
+            return {}, 'projectId 为必传参数'
+        return ProjectCodePrdService.list_git_repos_api(self.session, project_id)
+
+    def git_repo_save(self):
+        return ProjectCodePrdService.save_git_repo(self.session, self.req_data)
+
+    def git_repo_delete(self):
+        return ProjectCodePrdService.delete_git_repo(self.session, self.req_data)
+
     def record_list(self):
         project_id = self._get(self.req_data, 'projectId', 'project_id')
         if not project_id:
