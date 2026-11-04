@@ -1,4 +1,4 @@
-﻿# encoding: UTF-8
+# encoding: UTF-8
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -461,7 +461,15 @@ async def project_code_prd_generate(
     db: Session = Depends(get_db),
 ):
     """生成代码PRD"""
+    from flask import g
+    try:
+        g.current_user_id = user.get('user_id')
+    except Exception:
+        pass
     body = await request.json()
+    if isinstance(body, dict) and not body.get('createdBy') and not body.get('created_by'):
+        body = dict(body)
+        body['createdBy'] = user.get('user_id')
     controller = ProjectCodePrdController(body)
     try:
         record_id, err_msg = controller.generate()

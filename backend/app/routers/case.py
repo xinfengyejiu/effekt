@@ -1,4 +1,4 @@
-﻿# encoding: UTF-8
+# encoding: UTF-8
 import os
 from fastapi import APIRouter, Request, Depends, UploadFile, Form
 from fastapi.responses import FileResponse, StreamingResponse
@@ -69,6 +69,8 @@ async def case_update(
     db: Session = Depends(get_db),
 ):
     """更新用例"""
+    from flask import g
+    g.current_user_id = user.get('user_id')
     body = await request.json()
     controller = CaseController(body)
     try:

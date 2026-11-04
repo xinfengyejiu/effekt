@@ -36,9 +36,12 @@ INTENT_WHITELIST = {
     'ask_bug_summary',
     'ask_plan_summary',
     'ask_case_summary',
+    'ask_ai_case_rewrite_rate',
+    'ask_failure_attribution',
     'ask_report_summary',
     'ask_mobile_summary',
     'ask_performance_summary',
+    'start_ai_case_gen',
     'navigate_module',
     'navigate',
     'platform_overview',
@@ -52,9 +55,21 @@ EXAMPLES = [
     {'text': '该跑哪包回归？', 'intent': 'recommend_regression_pack'},
     {'text': '提测前还缺什么？', 'intent': 'precheck_release_or_test'},
     {'text': '当前项目有多少未关闭 Bug？', 'intent': 'ask_bug_summary'},
+    {'text': '帮我用最新代码PRD全自动生成用例', 'intent': 'start_ai_case_gen'},
+    {'text': '本项目 AI 用例改写率怎么样？', 'intent': 'ask_ai_case_rewrite_rate'},
+    {'text': '昨晚失败主要像环境还是用例？', 'intent': 'ask_failure_attribution'},
     {'text': '打开用例管理', 'intent': 'navigate_module'},
     {'text': '平台都能做什么？', 'intent': 'platform_overview'},
 ]
+
+CASE_GEN_WORKFLOW_EVENTS = {
+    'wizard_opened',
+    'outline_done',
+    'generate_done',
+    'import_done',
+    'coverage_done',
+    'wizard_failed',
+}
 
 
 class QualityAssistantService(object):
@@ -224,6 +239,15 @@ class QualityAssistantService(object):
                 return None, '缺少 route'
             return {'action_type': action_type, 'route': route}, ''
 
+        if action_type == 'set_ai_case_run_mode':
+            return QualityAssistantService._action_set_ai_case_run_mode(db, body, payload, user)
+
+        if action_type == 'open_ai_case_wizard':
+            return QualityAssistantService._action_open_ai_case_wizard(db, body, payload, user)
+
+        if action_type == 'sync_code_prd':
+            return QualityAssistantService._action_sync_code_prd(db, body, payload, user)
+
         return None, '不支持的动作类型：{}'.format(action_type or '-')
 
     # ── Session helpers ─────────────────────────────────────────
@@ -275,7 +299,8 @@ class QualityAssistantService(object):
                 '你是效能平台质量助手的意图解析器。只输出 JSON，不要解释。\n'
                 '可选 intent：' + ', '.join(sorted(INTENT_WHITELIST)) + '\n'
                 '字段：intent, slots(object), need_clarification(bool), clarify_question(string)\n'
-                'slots 可含：time_range(today|last_24h|last_7d), domain_keyword, suite_id, severity, module_key\n'
+                'slots 可含：time_range(today|last_24h|last_7d), domain_keyword, suite_id, severity, module_key, '
+                'doc_keyword, prefer_code_prd(bool), run_mode(auto|confirm)\n'
                 'module_key 可选：' + ', '.join([m['key'] for m in PLATFORM_MODULES]) + '\n'
                 '若用户要打开某模块，intent=navigate_module 并填 module_key。\n'
                 '当前已知槽位：' + json.dumps(slots, ensure_ascii=False) + '\n'
@@ -316,6 +341,18 @@ class QualityAssistantService(object):
         if re.search(r'(你能做|你会什么|帮助|help|能做什么)', raw, re.I):
             return {'intent': 'small_talk_or_help', 'slots': {}}
 
+        # AI 生成用例须先于「用例统计」，避免「生成测试用例」落到 ask_case_summary
+        if re.search(
+            r'(生成|写|出).{0,8}(用例|测试用例)|AI\s*生成用例|按.*(PRD|需求|文档).*(生成|写).*用例|'
+            r'(代码\s*PRD|代码转PRD).{0,12}(生成|写).{0,6}用例|(大纲|测点).{0,8}(生成|精写)',
+            raw,
+            re.I,
+        ):
+            return {
+                'intent': 'start_ai_case_gen',
+                'slots': QualityAssistantService._slot_case_gen(raw),
+            }
+
         if re.search(r'(提测|发布).*(缺|检查|门禁|就绪)|precheck|提测前', raw, re.I):
             return {'intent': 'precheck_release_or_test', 'slots': {}}
 
@@ -350,7 +387,13 @@ class QualityAssistantService(object):
         if re.search(r'测试计划|计划.*(列表|状态|多少)|有哪些计划', raw, re.I):
             return {'intent': 'ask_plan_summary', 'slots': {}}
 
-        if re.search(r'用例.*(多少|统计|汇总)|测试用例', raw, re.I):
+        if re.search(r'改写率|废稿率|直通率|AI\s*用例.*(改|废)|生成.*(改了多少|被人改)', raw, re.I):
+            return {'intent': 'ask_ai_case_rewrite_rate', 'slots': {}}
+
+        if re.search(r'(失败|挂了).*(环境|用例|代码|数据|根因|归因)|(像环境还是用例)|失败归因|根因分类', raw, re.I):
+            return {'intent': 'ask_failure_attribution', 'slots': QualityAssistantService._slot_time(raw)}
+
+        if re.search(r'用例.*(多少|统计|汇总)|有多少.*用例', raw, re.I):
             return {'intent': 'ask_case_summary', 'slots': {}}
 
         if re.search(r'测试报告|报告.*(列表|最近)', raw, re.I):
@@ -440,9 +483,12 @@ class QualityAssistantService(object):
             'ask_bug_summary': QualityAssistantService._tool_bug_summary,
             'ask_plan_summary': QualityAssistantService._tool_plan_summary,
             'ask_case_summary': QualityAssistantService._tool_case_summary,
+            'ask_ai_case_rewrite_rate': QualityAssistantService._tool_ai_case_rewrite_rate,
+            'ask_failure_attribution': QualityAssistantService._tool_failure_attribution,
             'ask_report_summary': QualityAssistantService._tool_report_summary,
             'ask_mobile_summary': QualityAssistantService._tool_mobile_summary,
             'ask_performance_summary': QualityAssistantService._tool_performance_summary,
+            'start_ai_case_gen': QualityAssistantService._tool_start_ai_case_gen,
             'navigate_module': QualityAssistantService._tool_navigate_module,
             'navigate': QualityAssistantService._tool_navigate,
             'platform_overview': QualityAssistantService._tool_platform_overview,
@@ -1123,8 +1169,119 @@ class QualityAssistantService(object):
                 'highlights': ['total={}'.format(total), 'auto={}'.format(auto_n)],
             }],
             actions=[{'type': 'navigate', 'label': '打开用例管理', 'route': '/test-platform/case?projectId={}'.format(project_id)}],
-            suggestions=['打开 AI 测试中枢', '打开测试计划'],
+            suggestions=['本项目 AI 用例改写率怎么样？', '打开测试计划'],
         ), [{'tool': 'ask_case_summary', 'total': total}]
+
+    @staticmethod
+    def _tool_ai_case_rewrite_rate(db, slots, message, user):
+        from app.api.service.aiCaseQualityService import AiCaseQualityService
+        project_id, err = QualityAssistantService._require_project(slots)
+        if err:
+            return QualityAssistantService._compose_text(
+                intent='ask_ai_case_rewrite_rate', answer_text=err, confidence=0.4,
+            ), [{'tool': 'ask_ai_case_rewrite_rate', 'error': err}]
+        data, serr = AiCaseQualityService.summary(db, project_id)
+        if serr:
+            return QualityAssistantService._compose_text(
+                intent='ask_ai_case_rewrite_rate', answer_text=serr, confidence=0.4,
+            ), [{'tool': 'ask_ai_case_rewrite_rate', 'error': serr}]
+        tracked = data.get('trackedCount') or 0
+        if not tracked:
+            text = (
+                '当前项目尚无「带入库原貌」的 AI 用例，改写率自本版本起算。'
+                '请先走 AI 生成并确认导入，再编辑几条后回来看改写率。'
+            )
+            if data.get('legacyAiCount'):
+                text += '（存量 AI 用例 {} 条未纳入改写率分母）'.format(data.get('legacyAiCount'))
+        else:
+            def _pct(v):
+                return '{}%'.format(int(round(float(v) * 100))) if v is not None else '—'
+            text = (
+                '本项目 AI 用例质量（有原貌样本 {} 条）：改写率 {}，废稿率 {}，直通率 {}。'
+                '改写 {} / 废稿 {} / 未改 {}。'
+            ).format(
+                tracked,
+                _pct(data.get('rewriteRate')),
+                _pct(data.get('abandonRate')),
+                _pct(data.get('passThroughRate')),
+                data.get('rewrittenCount') or 0,
+                data.get('abandonedCount') or 0,
+                data.get('intactCount') or 0,
+            )
+            if data.get('legacyNote'):
+                text += ' {}'.format(data.get('legacyNote'))
+        route = '/test-platform/case?projectId={}&tab=ai-case-import&aiQuality=1'.format(project_id)
+        return QualityAssistantService._compose_text(
+            intent='ask_ai_case_rewrite_rate',
+            answer_text=text,
+            confidence=0.92,
+            citations=[{
+                'type': 'ai_case_quality',
+                'id': project_id,
+                'title': 'AI 用例改写率',
+                'route': route,
+                'highlights': [
+                    'rewriteRate={}'.format(data.get('rewriteRate')),
+                    'tracked={}'.format(tracked),
+                ],
+            }],
+            actions=[{'type': 'navigate', 'label': '打开 AI 质量面板', 'route': route}],
+            suggestions=['昨晚失败主要像环境还是用例？', '帮我用最新代码PRD全自动生成用例'],
+        ), [{'tool': 'ask_ai_case_rewrite_rate', 'tracked': tracked, 'rewriteRate': data.get('rewriteRate')}]
+
+    @staticmethod
+    def _tool_failure_attribution(db, slots, message, user):
+        from app.api.service.failureAttributionService import FailureAttributionService
+        project_id, err = QualityAssistantService._require_project(slots)
+        if err:
+            return QualityAssistantService._compose_text(
+                intent='ask_failure_attribution', answer_text=err, confidence=0.4,
+            ), [{'tool': 'ask_failure_attribution', 'error': err}]
+        hours = 24
+        if slots.get('hours'):
+            try:
+                hours = int(slots.get('hours'))
+            except (TypeError, ValueError):
+                hours = 24
+        data, serr = FailureAttributionService.summary(db, project_id, hours=hours)
+        if serr:
+            return QualityAssistantService._compose_text(
+                intent='ask_failure_attribution', answer_text=serr, confidence=0.4,
+            ), [{'tool': 'ask_failure_attribution', 'error': serr}]
+        total = data.get('totalFailures') or 0
+        if not total:
+            text = '近 {} 小时内未发现自动化/巡检失败样本。'.format(hours)
+        else:
+            parts = [
+                '{} {} 条({}%)'.format(
+                    item.get('failureClass'),
+                    item.get('count'),
+                    int(round(float(item.get('ratio') or 0) * 100)),
+                )
+                for item in (data.get('distribution') or [])
+            ]
+            text = (
+                '近 {} 小时共 {} 次失败；主因偏向「{}」。分布：{}。'
+                '（规则优先归因，unknown 需人工复核）'
+            ).format(hours, total, data.get('topClassLabel') or data.get('topClass'), '；'.join(parts))
+        return QualityAssistantService._compose_text(
+            intent='ask_failure_attribution',
+            answer_text=text,
+            confidence=0.88,
+            citations=[{
+                'type': 'failure_attribution',
+                'id': project_id,
+                'title': '失败归因摘要',
+                'route': '/test-platform/case?projectId={}'.format(project_id),
+                'highlights': [data.get('topClassLabel') or ''],
+            }],
+            actions=[{
+                'type': 'navigate',
+                'label': '打开用例管理',
+                'route': '/test-platform/case?projectId={}'.format(project_id),
+            }],
+            suggestions=['本项目 AI 用例改写率怎么样？', '昨晚巡检挂了什么？'],
+        ), [{'tool': 'ask_failure_attribution', 'total': total, 'topClass': data.get('topClass')}]
 
     @staticmethod
     def _tool_report_summary(db, slots, message, user):
@@ -1264,6 +1421,551 @@ class QualityAssistantService(object):
                 {'type': 'navigate', 'label': 'AI 测试中枢', 'route': '/test-platform/ai-platform'},
             ],
         ), [{'tool': 'unsupported'}]
+
+    # ── AI case generation orchestration ────────────────────────
+
+    @staticmethod
+    def _slot_case_gen(raw):
+        slots = {}
+        if re.search(r'全自动|自动(跑|执行|生成)|不要确认|免确认', raw, re.I):
+            slots['run_mode'] = 'auto'
+        elif re.search(r'逐步确认|每步确认|先确认|手动确认|confirm', raw, re.I):
+            slots['run_mode'] = 'confirm'
+        if re.search(r'代码\s*PRD|代码转PRD|同步.*PRD|最新.*PRD', raw, re.I):
+            slots['prefer_code_prd'] = True
+        # 粗提取引号或「用XXX文档」
+        m = re.search(r'[「『"“](.{2,40}?)[」』"”]', raw)
+        if m:
+            slots['doc_keyword'] = m.group(1).strip()
+        else:
+            m2 = re.search(r'用(.{2,30}?)(文档|PRD|需求)', raw)
+            if m2 and '最新' not in m2.group(1) and '代码' not in m2.group(1):
+                slots['doc_keyword'] = m2.group(1).strip()
+        return slots
+
+    @staticmethod
+    def _case_gen_ctx(slots):
+        ctx = slots.get('case_gen') if isinstance(slots.get('case_gen'), dict) else {}
+        return dict(ctx or {})
+
+    @staticmethod
+    def _doc_display_name(doc):
+        source = (getattr(doc, 'source', None) or '').strip()
+        if source:
+            name = source.replace('\\', '/').rstrip('/').split('/')[-1]
+            if name.lower().endswith('.md'):
+                name = name[:-3]
+            if name:
+                return name
+        return '文档#{}'.format(getattr(doc, 'id', ''))
+
+    @staticmethod
+    def _list_case_gen_assets(db, project_id, product_id=None, doc_keyword=None, prefer_code_prd=False):
+        from app.api.model.documentSourceModel import DocumentSource
+        from app.api.dao.skillDao import SkillDao
+
+        docs = db.query(DocumentSource).filter(
+            DocumentSource.project_id == int(project_id),
+            DocumentSource.is_delete == 0,
+        ).order_by(DocumentSource.updated_time.desc(), DocumentSource.id.desc()).limit(80).all()
+
+        keyword = (doc_keyword or '').strip().lower()
+        scored = []
+        for doc in docs:
+            name = QualityAssistantService._doc_display_name(doc)
+            ai_model = (getattr(doc, 'ai_model', None) or '').strip()
+            source = (getattr(doc, 'source', None) or '')
+            is_code_prd = ai_model == 'code-prd' or 'code-prd' in source
+            score = 0
+            if prefer_code_prd and is_code_prd:
+                score += 100
+            if keyword and keyword in name.lower():
+                score += 50
+            if keyword and keyword in (source or '').lower():
+                score += 20
+            if is_code_prd:
+                score += 5
+            scored.append((score, doc, name, is_code_prd))
+        scored.sort(key=lambda x: (-x[0], -int(getattr(x[1], 'id', 0) or 0)))
+
+        selected_docs = []
+        if scored:
+            if prefer_code_prd:
+                code_docs = [x for x in scored if x[3]]
+                selected_docs = code_docs[:1] or scored[:1]
+            elif keyword:
+                hits = [x for x in scored if x[0] >= 50]
+                selected_docs = hits[:3] or scored[:1]
+            else:
+                # 默认优先代码PRD，否则最新一条
+                code_docs = [x for x in scored if x[3]]
+                selected_docs = code_docs[:1] or scored[:1]
+
+        skills = SkillDao.list_skills_by_project(db, project_id, status=1) or []
+        rules = SkillDao.list_business_rules_by_project(db, project_id, status=1) or []
+
+        doc_items = [{
+            'id': int(item[1].id),
+            'title': item[2],
+            'isCodePrd': bool(item[3]),
+            'aiModel': getattr(item[1], 'ai_model', None) or '',
+        } for item in selected_docs]
+        # 候选列表（供用户改选提示）
+        candidates = [{
+            'id': int(item[1].id),
+            'title': item[2],
+            'isCodePrd': bool(item[3]),
+        } for item in scored[:8]]
+
+        skill_items = [{'id': int(s.id), 'name': s.name or 'Skill#{}'.format(s.id)} for s in skills[:20]]
+        rule_items = [{'id': int(r.id), 'name': r.name or 'Rule#{}'.format(r.id)} for r in rules[:20]]
+        return {
+            'documents': doc_items,
+            'documentCandidates': candidates,
+            'skills': skill_items,
+            'rules': rule_items,
+            'productId': int(product_id) if product_id not in (None, '') else None,
+            'projectId': int(project_id),
+        }
+
+    @staticmethod
+    def _tool_start_ai_case_gen(db, slots, message, user):
+        project_id, err = QualityAssistantService._require_project(slots)
+        if err:
+            return QualityAssistantService._compose_text(
+                intent='start_ai_case_gen',
+                answer_text=err,
+                confidence=0.4,
+                suggestions=['先在上方选择产品/项目，再说：帮我用最新代码PRD全自动生成用例'],
+            ), [{'tool': 'propose_case_gen', 'error': err}]
+
+        product_id = slots.get('product_id')
+        prefer_code_prd = bool(slots.get('prefer_code_prd'))
+        doc_keyword = (slots.get('doc_keyword') or '').strip() or None
+        # 消息里若再次提到代码PRD
+        if re.search(r'代码\s*PRD|代码转PRD|最新.*PRD', message or '', re.I):
+            prefer_code_prd = True
+
+        assets = QualityAssistantService._list_case_gen_assets(
+            db, project_id, product_id=product_id,
+            doc_keyword=doc_keyword, prefer_code_prd=prefer_code_prd,
+        )
+        case_gen = QualityAssistantService._case_gen_ctx(slots)
+        doc_ids = [d['id'] for d in assets['documents']]
+        # 默认不强制勾选全部 Skill/规则，避免过长 prompt；用户可自然语言再要求
+        skill_ids = case_gen.get('skillIds') or []
+        rule_ids = case_gen.get('ruleIds') or []
+        run_mode = (slots.get('run_mode') or case_gen.get('runMode') or '').strip().lower()
+        if run_mode not in ('auto', 'confirm'):
+            run_mode = ''
+
+        case_gen.update({
+            'step': 'propose',
+            'documentIds': doc_ids,
+            'skillIds': [int(x) for x in skill_ids if str(x).isdigit() or isinstance(x, int)],
+            'ruleIds': [int(x) for x in rule_ids if str(x).isdigit() or isinstance(x, int)],
+            'runMode': run_mode or case_gen.get('runMode') or '',
+            'preferCodePrd': prefer_code_prd,
+        })
+        slots['case_gen'] = case_gen
+
+        if not doc_ids:
+            actions = [{
+                'type': 'sync_code_prd',
+                'label': '同步最新代码PRD',
+                'payload': {
+                    'project_id': project_id,
+                    'product_id': product_id,
+                },
+            }, {
+                'type': 'navigate',
+                'label': '打开用例管理选文档',
+                'route': '/test-platform/case?productId={}&projectId={}&tab=ai-case-import'.format(
+                    product_id or '', project_id
+                ),
+            }]
+            return QualityAssistantService._compose_text(
+                intent='start_ai_case_gen',
+                answer_text=(
+                    '当前项目还没有可用文档源。可先同步最新代码PRD，或到用例管理导入/勾选文档后再说一次。'
+                ),
+                confidence=0.7,
+                actions=actions,
+                suggestions=['同步最新代码PRD后再生成用例', '帮我用最新代码PRD全自动生成用例'],
+            ), [{'tool': 'list_case_gen_assets', 'ok': True, 'documents': 0}]
+
+        doc_lines = '、'.join(['「{}」(#{}{})'.format(
+            d['title'], d['id'], '·代码PRD' if d.get('isCodePrd') else ''
+        ) for d in assets['documents']])
+        skill_line = '未勾选（可后续在向导页补充）' if not skill_ids else '、'.join([
+            s['name'] for s in assets['skills'] if s['id'] in set(case_gen['skillIds'])
+        ]) or '{} 个'.format(len(case_gen['skillIds']))
+        rule_line = '未勾选（可后续在向导页补充）' if not rule_ids else '{} 个'.format(len(case_gen['ruleIds']))
+
+        mode_label = {'auto': '全自动', 'confirm': '逐步确认'}.get(run_mode, '未选择（请先选权限模式）')
+        answer_text = (
+            '已为 AI 生成用例准备选型：\n'
+            '- 文档：{}\n'
+            '- Skills：{}\n'
+            '- 业务规则：{}\n'
+            '- 运行模式：{}\n\n'
+            '请选择权限模式后打开向导。全自动将依次：大纲→精写预览→确认导入；'
+            '逐步确认则只预填资源，由你在用例页逐步点选。'
+        ).format(doc_lines, skill_line, rule_line, mode_label)
+
+        actions = []
+        if run_mode != 'auto':
+            actions.append({
+                'type': 'set_ai_case_run_mode',
+                'label': '设为全自动',
+                'payload': {'run_mode': 'auto'},
+            })
+        if run_mode != 'confirm':
+            actions.append({
+                'type': 'set_ai_case_run_mode',
+                'label': '设为逐步确认',
+                'payload': {'run_mode': 'confirm'},
+            })
+        if prefer_code_prd or any(d.get('isCodePrd') for d in assets['documents']):
+            actions.append({
+                'type': 'sync_code_prd',
+                'label': '重新同步代码PRD',
+                'payload': {'project_id': project_id, 'product_id': product_id},
+            })
+        open_payload = {
+            'product_id': product_id,
+            'project_id': project_id,
+            'document_ids': doc_ids,
+            'skill_ids': case_gen.get('skillIds') or [],
+            'rule_ids': case_gen.get('ruleIds') or [],
+            'run_mode': run_mode or 'confirm',
+        }
+        actions.append({
+            'type': 'open_ai_case_wizard',
+            'label': '确认并打开向导' if run_mode else '打开向导（默认逐步确认）',
+            'payload': open_payload,
+        })
+
+        return QualityAssistantService._compose_text(
+            intent='start_ai_case_gen',
+            answer_text=answer_text,
+            confidence=0.85,
+            citations=[{
+                'type': 'document',
+                'id': d['id'],
+                'title': d['title'],
+                'route': '/test-platform/case?productId={}&projectId={}&tab=ai-case-import'.format(
+                    product_id or '', project_id
+                ),
+                'highlights': ['代码PRD'] if d.get('isCodePrd') else [],
+            } for d in assets['documents']],
+            actions=actions,
+            suggestions=[
+                '帮我用最新代码PRD全自动生成用例',
+                '改成逐步确认再打开向导',
+            ],
+        ), [{
+            'tool': 'propose_case_gen',
+            'ok': True,
+            'documents': doc_ids,
+            'run_mode': run_mode or '',
+            'candidates': len(assets.get('documentCandidates') or []),
+        }]
+
+    @staticmethod
+    def _get_session_for_user(db, session_id, user_id):
+        if session_id in (None, '') or user_id in (None, ''):
+            return None
+        return QualityAssistantDao.get_session(db, session_id=int(session_id), user_id=int(user_id))
+
+    @staticmethod
+    def _merge_case_gen_on_session(db, sess, patch):
+        ctx = dict(sess.context or {})
+        case_gen = dict(ctx.get('case_gen') or {})
+        case_gen.update(patch or {})
+        ctx['case_gen'] = case_gen
+        QualityAssistantDao.update_session(db, sess.id, {
+            'context': ctx,
+            'updated_time': datetime.now(),
+        })
+        return case_gen
+
+    @staticmethod
+    def _action_set_ai_case_run_mode(db, body, payload, user):
+        user_id = user.get('user_id')
+        session_id = body.get('session_id')
+        run_mode = (payload.get('run_mode') or payload.get('runMode') or '').strip().lower()
+        if run_mode not in ('auto', 'confirm'):
+            return None, 'run_mode 必须是 auto 或 confirm'
+        sess = QualityAssistantService._get_session_for_user(db, session_id, user_id)
+        if not sess:
+            return None, '会话不存在或无权访问'
+        case_gen = QualityAssistantService._merge_case_gen_on_session(db, sess, {
+            'runMode': run_mode,
+            'step': 'mode_set',
+        })
+        label = '全自动' if run_mode == 'auto' else '逐步确认'
+        open_payload = {
+            'product_id': sess.product_id or case_gen.get('productId'),
+            'project_id': sess.project_id or case_gen.get('projectId'),
+            'document_ids': case_gen.get('documentIds') or [],
+            'skill_ids': case_gen.get('skillIds') or [],
+            'rule_ids': case_gen.get('ruleIds') or [],
+            'run_mode': run_mode,
+        }
+        answer = QualityAssistantService._compose_text(
+            intent='start_ai_case_gen',
+            answer_text='已将运行模式设为「{}」。可继续打开向导。'.format(label),
+            actions=[{
+                'type': 'open_ai_case_wizard',
+                'label': '确认并打开向导',
+                'payload': open_payload,
+            }, {
+                'type': 'set_ai_case_run_mode',
+                'label': '改成{}'.format('逐步确认' if run_mode == 'auto' else '全自动'),
+                'payload': {'run_mode': 'confirm' if run_mode == 'auto' else 'auto'},
+            }],
+            suggestions=['确认并打开向导'],
+        )
+        QualityAssistantDao.create_message(db, {
+            'session_id': int(sess.id),
+            'role': 'assistant',
+            'content': answer['answer_text'],
+            'intent': 'start_ai_case_gen',
+            'tool_trace': [{'tool': 'set_ai_case_run_mode', 'input': {'run_mode': run_mode}, 'ok': True}],
+            'answer_payload': answer,
+        })
+        db.commit()
+        return {'action_type': 'set_ai_case_run_mode', 'run_mode': run_mode, 'answer': answer}, ''
+
+    @staticmethod
+    def _build_case_wizard_route(product_id, project_id, session_id, run_mode, document_ids, skill_ids, rule_ids):
+        from urllib.parse import urlencode
+        query = {
+            'productId': product_id or '',
+            'projectId': project_id or '',
+            'tab': 'ai-case-import',
+            'qaSessionId': session_id or '',
+            'runMode': run_mode or 'confirm',
+            'documentIds': ','.join([str(int(x)) for x in (document_ids or []) if str(x).strip()]),
+            'skillIds': ','.join([str(int(x)) for x in (skill_ids or []) if str(x).strip()]),
+            'ruleIds': ','.join([str(int(x)) for x in (rule_ids or []) if str(x).strip()]),
+        }
+        return '/test-platform/case?' + urlencode(query)
+
+    @staticmethod
+    def _action_open_ai_case_wizard(db, body, payload, user):
+        user_id = user.get('user_id')
+        session_id = body.get('session_id')
+        codes = user.get('permission_codes') or []
+        # 空列表视为未启用细粒度权限（兼容本地）
+        if codes and 'document:generate' not in codes:
+            return None, '无文档生成权限（document:generate），无法打开 AI 生成用例向导'
+
+        sess = QualityAssistantService._get_session_for_user(db, session_id, user_id)
+        if not sess:
+            return None, '会话不存在或无权访问'
+
+        case_gen = QualityAssistantService._case_gen_ctx(sess.context or {})
+        product_id = payload.get('product_id') or payload.get('productId') or sess.product_id
+        project_id = payload.get('project_id') or payload.get('projectId') or sess.project_id
+        document_ids = payload.get('document_ids') or payload.get('documentIds') or case_gen.get('documentIds') or []
+        skill_ids = payload.get('skill_ids') or payload.get('skillIds') or case_gen.get('skillIds') or []
+        rule_ids = payload.get('rule_ids') or payload.get('ruleIds') or case_gen.get('ruleIds') or []
+        run_mode = (payload.get('run_mode') or payload.get('runMode') or case_gen.get('runMode') or 'confirm')
+        run_mode = str(run_mode).strip().lower()
+        if run_mode not in ('auto', 'confirm'):
+            run_mode = 'confirm'
+
+        document_ids = [int(x) for x in document_ids if str(x).strip().isdigit() or isinstance(x, int)]
+        skill_ids = [int(x) for x in skill_ids if str(x).strip().isdigit() or isinstance(x, int)]
+        rule_ids = [int(x) for x in rule_ids if str(x).strip().isdigit() or isinstance(x, int)]
+        if not project_id:
+            return None, '缺少项目上下文，请先选择项目'
+        if not document_ids:
+            return None, '请先选择至少一个文档（PRD）'
+
+        route = QualityAssistantService._build_case_wizard_route(
+            product_id, project_id, sess.id, run_mode, document_ids, skill_ids, rule_ids,
+        )
+        QualityAssistantService._merge_case_gen_on_session(db, sess, {
+            'step': 'wizard_opened',
+            'runMode': run_mode,
+            'documentIds': document_ids,
+            'skillIds': skill_ids,
+            'ruleIds': rule_ids,
+            'productId': int(product_id) if product_id not in (None, '') else None,
+            'projectId': int(project_id),
+            'lastSummary': '已打开向导',
+        })
+        mode_label = '全自动' if run_mode == 'auto' else '逐步确认'
+        answer = QualityAssistantService._compose_text(
+            intent='start_ai_case_gen',
+            answer_text=(
+                '已打开用例管理「AI生成用例」向导（模式：{}）。'
+                '文档ID={}；Skills={}；规则={}。'
+                '请在用例页查看进度；关键步骤会回写到本对话留痕。'
+            ).format(mode_label, document_ids, skill_ids or '无', rule_ids or '无'),
+            actions=[{
+                'type': 'navigate',
+                'label': '再次打开向导页',
+                'route': route,
+            }],
+            suggestions=['覆盖报告怎么样了？', '今天哪些 breaking？'],
+        )
+        QualityAssistantDao.create_message(db, {
+            'session_id': int(sess.id),
+            'role': 'assistant',
+            'content': answer['answer_text'],
+            'intent': 'start_ai_case_gen',
+            'tool_trace': [{
+                'tool': 'open_ai_case_wizard',
+                'input': {
+                    'run_mode': run_mode,
+                    'document_ids': document_ids,
+                    'skill_ids': skill_ids,
+                    'rule_ids': rule_ids,
+                },
+                'ok': True,
+            }],
+            'answer_payload': answer,
+        })
+        db.commit()
+        return {
+            'action_type': 'open_ai_case_wizard',
+            'route': route,
+            'run_mode': run_mode,
+            'answer': answer,
+        }, ''
+
+    @staticmethod
+    def _action_sync_code_prd(db, body, payload, user):
+        user_id = user.get('user_id')
+        session_id = body.get('session_id')
+        project_id = payload.get('project_id') or payload.get('projectId')
+        product_id = payload.get('product_id') or payload.get('productId')
+        if project_id in (None, ''):
+            return None, '缺少 project_id'
+        from app.api.service.documentSourceService import DocumentSourceService
+        from app.api.model.projectModel import Project
+        if product_id in (None, ''):
+            proj = db.query(Project).filter(Project.id == int(project_id)).first()
+            product_id = getattr(proj, 'product_id', None) if proj else None
+        ret, err = DocumentSourceService.sync_from_latest_code_prd(
+            db, int(project_id), user_id=user_id,
+        )
+        if err:
+            return None, err
+        doc_obj = (ret or {}).get('document')
+        doc_id = (ret or {}).get('documentId') or getattr(doc_obj, 'id', None)
+        title = (ret or {}).get('title') or '代码PRD'
+        sess = QualityAssistantService._get_session_for_user(db, session_id, user_id)
+        if sess and doc_id:
+            QualityAssistantService._merge_case_gen_on_session(db, sess, {
+                'documentIds': [int(doc_id)],
+                'preferCodePrd': True,
+                'step': 'docs_synced',
+                'lastSummary': '已同步代码PRD #{}'.format(doc_id),
+            })
+        answer = QualityAssistantService._compose_text(
+            intent='start_ai_case_gen',
+            answer_text='已同步最新代码PRD「{}」(#{})。可继续选择运行模式并打开向导。'.format(title, doc_id or '-'),
+            actions=[{
+                'type': 'set_ai_case_run_mode',
+                'label': '设为全自动',
+                'payload': {'run_mode': 'auto'},
+            }, {
+                'type': 'set_ai_case_run_mode',
+                'label': '设为逐步确认',
+                'payload': {'run_mode': 'confirm'},
+            }, {
+                'type': 'open_ai_case_wizard',
+                'label': '确认并打开向导',
+                'payload': {
+                    'product_id': product_id,
+                    'project_id': project_id,
+                    'document_ids': [int(doc_id)] if doc_id else [],
+                    'run_mode': 'confirm',
+                },
+            }],
+            suggestions=['帮我用最新代码PRD全自动生成用例'],
+        )
+        if sess:
+            QualityAssistantDao.create_message(db, {
+                'session_id': int(sess.id),
+                'role': 'assistant',
+                'content': answer['answer_text'],
+                'intent': 'start_ai_case_gen',
+                'tool_trace': [{'tool': 'sync_code_prd', 'input': {'project_id': project_id}, 'ok': True, 'document_id': doc_id}],
+                'answer_payload': answer,
+            })
+            db.commit()
+        else:
+            db.commit()
+        return {'action_type': 'sync_code_prd', 'result': ret, 'answer': answer}, ''
+
+    @staticmethod
+    def append_workflow_event(db, body, user):
+        """用例页向导回写进度到质量助手会话。"""
+        body = body or {}
+        user_id = user.get('user_id')
+        session_id = body.get('session_id') or body.get('sessionId')
+        event = (body.get('event') or '').strip()
+        summary = (body.get('summary') or '').strip()
+        plan_id = body.get('plan_id') or body.get('planId')
+        metrics = body.get('metrics') if isinstance(body.get('metrics'), dict) else {}
+
+        if not session_id:
+            return None, '缺少 session_id'
+        if event not in CASE_GEN_WORKFLOW_EVENTS:
+            return None, '不支持的 event：{}'.format(event or '-')
+        if not summary:
+            return None, '缺少 summary'
+
+        sess = QualityAssistantService._get_session_for_user(db, session_id, user_id)
+        if not sess:
+            return None, '会话不存在或无权访问'
+
+        patch = {
+            'step': event,
+            'lastSummary': summary,
+        }
+        if plan_id not in (None, ''):
+            try:
+                patch['planId'] = int(plan_id)
+            except (TypeError, ValueError):
+                pass
+        if metrics:
+            patch['lastMetrics'] = metrics
+        QualityAssistantService._merge_case_gen_on_session(db, sess, patch)
+
+        answer = QualityAssistantService._compose_text(
+            intent='start_ai_case_gen',
+            answer_text=summary,
+            confidence=0.9,
+            citations=[{
+                'type': 'generation_plan',
+                'id': int(plan_id),
+                'title': '生成计划 #{}'.format(plan_id),
+                'route': '/test-platform/case?projectId={}&tab=ai-case-import'.format(sess.project_id or ''),
+                'highlights': [event],
+            }] if plan_id not in (None, '') else [],
+            suggestions=['打开用例管理', '今天哪些 breaking？'],
+        )
+        QualityAssistantDao.create_message(db, {
+            'session_id': int(sess.id),
+            'role': 'assistant',
+            'content': summary,
+            'intent': 'start_ai_case_gen',
+            'tool_trace': [{'tool': 'workflow_event', 'event': event, 'plan_id': plan_id, 'metrics': metrics, 'ok': True}],
+            'answer_payload': answer,
+        })
+        db.commit()
+        return {
+            'session_id': sess.id,
+            'event': event,
+            'answer': answer,
+        }, ''
 
     # ── Composer ────────────────────────────────────────────────
 

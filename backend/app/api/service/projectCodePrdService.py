@@ -274,7 +274,13 @@ class ProjectCodePrdService(object):
             if err_msg:
                 ProjectCodePrdService.update_by_id(session, ProjectCodePrdRecord, record.id, {'status': 3, 'error_message': err_msg})
                 return 0, err_msg
-            markdown, err_msg = ProjectCodePrdService.generate_prd_markdown(summary, record.repo_url, record.branch, prompt_append)
+            markdown, err_msg = ProjectCodePrdService.generate_prd_markdown(
+                summary,
+                record.repo_url,
+                record.branch,
+                prompt_append,
+                user_id=getattr(record, 'created_by', None),
+            )
             if err_msg:
                 ProjectCodePrdService.update_by_id(session, ProjectCodePrdRecord, record.id, {
                     'status': 3,
@@ -283,13 +289,33 @@ class ProjectCodePrdService(object):
                 })
                 return 0, err_msg
             title = ProjectCodePrdService.extract_title(markdown) or f'代码转PRD-{record.branch}'
-            return ProjectCodePrdService.update_by_id(session, ProjectCodePrdRecord, record.id, {
+            updated, err = ProjectCodePrdService.update_by_id(session, ProjectCodePrdRecord, record.id, {
                 'status': 2,
                 'summary': summary,
                 'prd_markdown': markdown,
                 'title': title,
                 'error_message': ''
             })
+            # 成功后同步为 AI 用例文档源，供「AI生成用例」直接勾选
+            try:
+                from app.api.service.documentSourceService import DocumentSourceService
+                sync_ret, sync_err = DocumentSourceService.sync_from_latest_code_prd(
+                    session,
+                    record.project_id,
+                    user_id=getattr(record, 'created_by', None),
+                    record_id=record.id,
+                )
+                if sync_err:
+                    logger.warning('代码PRD同步文档源失败 record_id=%s: %s', record.id, sync_err)
+                else:
+                    logger.info(
+                        '代码PRD已同步文档源 documentId=%s recordId=%s',
+                        (sync_ret or {}).get('documentId'), record.id
+                    )
+                session.commit()
+            except Exception as sync_exc:
+                logger.warning('代码PRD同步文档源异常 record_id=%s: %s', record.id, sync_exc)
+            return updated, err
         except Exception as e:
             logger.error(f'生成代码PRD失败: {e}')
             ProjectCodePrdService.update_by_id(session, ProjectCodePrdRecord, record.id, {'status': 3, 'error_message': str(e)})
@@ -368,26 +394,50 @@ class ProjectCodePrdService(object):
         return output[:limit]
 
     @staticmethod
-    def generate_prd_markdown(summary, repo_url, branch, prompt_append=''):
+    def generate_prd_markdown(summary, repo_url, branch, prompt_append='', user_id=None):
 
-        analysis_summary, err_msg = ProjectCodePrdService._build_prd_analysis_summary(summary, repo_url, branch, prompt_append)
+        analysis_summary, err_msg = ProjectCodePrdService._build_prd_analysis_summary(
+            summary, repo_url, branch, prompt_append, user_id=user_id
+        )
         if err_msg:
             return '', err_msg
         prompt = ProjectCodePrdService._build_prd_prompt(analysis_summary, repo_url, branch, prompt_append)
-        result, err_msg = ProjectCodePrdService._request_markdown(prompt, max_tokens=7000)
+        result, err_msg = ProjectCodePrdService._request_markdown(prompt, max_tokens=7000, user_id=user_id)
         if err_msg:
             return '', err_msg
-        markdown = ProjectCodePrdService._strip_markdown_fence(result)
+        markdown = ProjectCodePrdService._sanitize_prd_markdown(
+            ProjectCodePrdService._strip_markdown_fence(result)
+        )
         if not markdown.strip():
             return '', '大模型未返回PRD内容'
+        if ProjectCodePrdService._looks_like_scratchpad(markdown):
+            logger.warning('代码PRD终稿疑似推理草稿，触发严格重试. preview=%s', markdown[:300])
+            retry_prompt = (
+                prompt
+                + '\n\n【重试约束】上一次输出了英文推理草稿而不是 PRD。'
+                + '请直接输出完整中文 PRD Markdown，以一级标题开头，不要输出 Need/We/Could 等思考过程。'
+            )
+            result, err_msg = ProjectCodePrdService._request_markdown(
+                retry_prompt, max_tokens=7000, user_id=user_id
+            )
+            if err_msg:
+                return '', err_msg
+            markdown = ProjectCodePrdService._sanitize_prd_markdown(
+                ProjectCodePrdService._strip_markdown_fence(result)
+            )
+            if not markdown.strip():
+                return '', '大模型未返回PRD内容'
+            if ProjectCodePrdService._looks_like_scratchpad(markdown):
+                return '', '大模型返回的是推理草稿而非PRD正文，请重试生成'
         return markdown, ''
 
     @staticmethod
-    def _build_prd_analysis_summary(summary, repo_url, branch, prompt_append=''):
+    def _build_prd_analysis_summary(summary, repo_url, branch, prompt_append='', user_id=None):
         chunks = ProjectCodePrdService._split_summary_chunks(summary)
         if len(chunks) <= 1:
             return summary, ''
         results = []
+        failed = []
         logger.info(f'代码PRD启用串行分块agent分析: chunks={len(chunks)}')
         try:
             for index, chunk in enumerate(chunks):
@@ -397,17 +447,28 @@ class ProjectCodePrdService(object):
                     len(chunks),
                     repo_url,
                     branch,
-                    prompt_append
+                    prompt_append,
+                    user_id=user_id,
                 )
-                if err_msg:
-                    return '', err_msg
-                results.append(chunk_result)
+                if err_msg or not (chunk_result or '').strip():
+                    # 单块失败不整单失败：记录后继续，避免偶发空响应拖垮整次生成
+                    reason = err_msg or '未返回内容'
+                    failed.append({'chunkIndex': index + 1, 'error': reason})
+                    logger.warning('代码PRD分块%d/%d失败，跳过继续: %s', index + 1, len(chunks), reason[:200])
+                    continue
+                results.append(u'### 分块分析 {0}/{1}\n\n{2}'.format(index + 1, len(chunks), chunk_result))
         except Exception as e:
             logger.error(f'代码PRD分块agent分析失败: {e}')
             return '', f'代码PRD分块agent分析失败: {e}'
         merged = '\n\n'.join([item for item in results if item])
         if not merged.strip():
-            return '', '代码PRD分块agent未返回分析内容'
+            detail = '; '.join([u'第{0}块:{1}'.format(f['chunkIndex'], f['error']) for f in failed[:5]])
+            return '', u'代码PRD分块agent未返回分析内容' + (u'（{0}）'.format(detail) if detail else '')
+        if failed:
+            merged += u'\n\n### 未成功分析的分块\n' + '\n'.join([
+                u'- 第{0}块：{1}'.format(f['chunkIndex'], f['error']) for f in failed
+            ])
+            logger.warning('代码PRD分块完成：成功%d，跳过%d', len(results), len(failed))
         return f'''
 以下是代码库分块agent分析结果，请基于这些结果生成最终PRD，不要再逐文件展开原始代码。
 
@@ -415,15 +476,24 @@ class ProjectCodePrdService(object):
 '''.strip(), ''
 
     @staticmethod
-    def _analyze_prd_chunk(chunk, chunk_index, total_chunks, repo_url, branch, prompt_append=''):
+    def _analyze_prd_chunk(chunk, chunk_index, total_chunks, repo_url, branch, prompt_append='', user_id=None):
         prompt = ProjectCodePrdService._build_prd_chunk_prompt(chunk, chunk_index, total_chunks, repo_url, branch, prompt_append)
-        result, err_msg = ProjectCodePrdService._request_markdown(prompt, max_tokens=2500)
-        if err_msg:
-            return '', err_msg
-        text = ProjectCodePrdService._strip_markdown_fence(result)
-        if not text.strip():
-            return '', f'第{chunk_index}个代码分析agent未返回内容'
-        return text.strip(), ''
+        last_err = ''
+        # 空响应常见于网关抖动 / 推理模型 content 为空，最多重试 2 次
+        for attempt in range(1, 3):
+            result, err_msg = ProjectCodePrdService._request_markdown(
+                prompt, max_tokens=4000, user_id=user_id
+            )
+            if err_msg:
+                last_err = err_msg
+                logger.warning('代码PRD分块%d 请求失败 attempt=%d: %s', chunk_index, attempt, err_msg[:200])
+                continue
+            text = ProjectCodePrdService._strip_markdown_fence(result)
+            if text.strip():
+                return text.strip(), ''
+            last_err = u'第{0}个代码分析agent未返回内容'.format(chunk_index)
+            logger.warning('代码PRD分块%d 返回空内容 attempt=%d raw_len=%s', chunk_index, attempt, len(result or ''))
+        return '', last_err or u'第{0}个代码分析agent未返回内容'.format(chunk_index)
 
     @staticmethod
     def _split_summary_chunks(summary, max_chars=9000):
@@ -500,23 +570,47 @@ class ProjectCodePrdService(object):
         return ''
 
     @staticmethod
-    def _request_markdown(prompt, max_tokens=12000):
+    def _request_markdown(prompt, max_tokens=12000, user_id=None):
         try:
             from openai import OpenAI
             from config.ai_config import AIConfig
             import httpx
             import time
-            api_key = AIConfig.get_api_key()
-            api_base = AIConfig.get_api_base()
-            model = AIConfig.get_model()
-            key_source = AIConfig.get_api_key_source()
+
+            # 优先使用个人中心 BYOK（发起人 created_by）；未配置时回退系统 .env
+            model_setting = AIService.resolve_model_setting({}, user_id=user_id)
+            api_key = (
+                model_setting.get('apiKey')
+                or model_setting.get('api_key')
+                or AIConfig.get_api_key()
+            )
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            model = model_setting.get('model') or AIConfig.get_model()
+            temperature = float(
+                model_setting.get('temperature')
+                if model_setting.get('temperature') is not None
+                else 0.2
+            )
+            if model_setting.get('maxTokens') or model_setting.get('max_tokens'):
+                try:
+                    max_tokens = int(model_setting.get('maxTokens') or model_setting.get('max_tokens'))
+                except (TypeError, ValueError):
+                    pass
+            if model_setting.get('apiKey') or model_setting.get('api_key'):
+                key_source = 'user_preference'
+            else:
+                key_source = AIConfig.get_api_key_source()
+            provider = model_setting.get('provider') or AIConfig.MODEL_PROVIDER
             if not api_key or api_key == '请替换为你的Meteor API Key':
-                return '', '未配置API密钥，请在.env中配置METEOR_API_KEY'
-            is_plan_key = '/plan/' in api_base
+                return '', '未配置API密钥，请在个人中心配置 Key，或在.env中配置系统默认密钥'
+            is_plan_key = '/plan/' in (api_base or '')
             request_base = AIService._normalize_plan_api_base(api_base) if is_plan_key else AIService._normalize_api_base(api_base)
             read_timeout = max(AIConfig.READ_TIMEOUT, 300)
             timeout = httpx.Timeout(connect=AIConfig.CONNECT_TIMEOUT, read=read_timeout, write=read_timeout, pool=AIConfig.CONNECT_TIMEOUT)
-            logger.info(f'代码PRD AI配置: provider={AIConfig.MODEL_PROVIDER}, base={request_base}, model={model}, key_source={key_source}, key_prefix={api_key[:8]}, plan_key={is_plan_key}')
+            logger.info(
+                '代码PRD AI配置: provider=%s, base=%s, model=%s, key_source=%s, key_prefix=%s, plan_key=%s, user_id=%s',
+                provider, request_base, model, key_source, api_key[:8], is_plan_key, user_id
+            )
             gateway_retry_count = 0
             gateway_retry_delay = max(1.0, getattr(AIConfig, 'GATEWAY_RETRY_DELAY', 30.0))
             gateway_max_retries = max(0, getattr(AIConfig, 'GATEWAY_MAX_RETRIES', 0))
@@ -526,7 +620,7 @@ class ProjectCodePrdService(object):
                         OpenAI, AIConfig, api_key, request_base, model, is_plan_key, prompt, timeout, httpx,
                         max_retries=1,
                         max_tokens=max_tokens,
-                        temperature=0.2,
+                        temperature=temperature,
                         system_prompt='你是资深产品经理和软件架构分析师。根据代码库摘要输出严谨的PRD Markdown。'
                     )
                     return result, ''
@@ -662,6 +756,45 @@ class ProjectCodePrdService(object):
         s = (text or '').strip()
         m = re.match(r'^```(?:markdown|md)?\s*([\s\S]*?)\s*```$', s)
         return m.group(1).strip() if m else s
+
+    @staticmethod
+    def _looks_like_scratchpad(text):
+        """识别推理模型把 thinking/规划草稿当成终稿的情况。"""
+        s = (text or '').strip()
+        if not s:
+            return True
+        head = s[:500]
+        scratch_starts = (
+            'We need', 'Need ', 'Could ', 'Better ', 'Must ', 'Should ',
+            'I need', 'Let me', 'The plan', 'Thinking',
+        )
+        if any(head.startswith(p) for p in scratch_starts):
+            return True
+        lines = [ln.strip() for ln in s.splitlines() if ln.strip()]
+        if not lines:
+            return True
+        scratch_line_re = re.compile(
+            r'^(We need|Need |Could |Better |Evidence\?|Chunk\d|Unknown |Must include)\b',
+            re.I,
+        )
+        sample = lines[:40]
+        scratch_hits = sum(1 for ln in sample if scratch_line_re.search(ln))
+        heading_hits = sum(1 for ln in sample if ln.startswith('#'))
+        return scratch_hits >= 8 and heading_hits < 3
+
+    @staticmethod
+    def _sanitize_prd_markdown(text):
+        """去掉开头的英文推理草稿，尽量从真实标题开始。"""
+        s = (text or '').strip()
+        if not s:
+            return s
+        if ProjectCodePrdService._looks_like_scratchpad(s) or re.match(
+            r'^(We need|Need |Could |Better |Must |Should |I need|Let me)\b', s
+        ):
+            match = re.search(r'(?m)^#\s+\S.*$', s)
+            if match:
+                s = s[match.start():].strip()
+        return s
 
     @staticmethod
     def _is_safe_git_url(repo_url):

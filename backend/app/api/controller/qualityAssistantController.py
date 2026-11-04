@@ -28,3 +28,7 @@ class QualityAssistantController(object):
     @staticmethod
     def execute_action(db, body, user):
         return QualityAssistantService.execute_action(db, body, user)
+
+    @staticmethod
+    def append_workflow_event(db, body, user):
+        return QualityAssistantService.append_workflow_event(db, body, user)

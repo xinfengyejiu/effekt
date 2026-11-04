@@ -1,4 +1,4 @@
-﻿# encoding: UTF-8
+# encoding: UTF-8
 from fastapi import APIRouter, Request, Depends, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -114,6 +114,140 @@ async def document_refresh(
         controller.close_session()
 
 
+@router.post("/document/sync-code-prd")
+async def document_sync_code_prd(
+    request: Request,
+    user: dict = Depends(require_permission("document:create")),
+    db: Session = Depends(get_db),
+):
+    """同步项目最新成功代码转PRD为文档源"""
+    from flask import g
+    try:
+        g.current_user_id = user.get('user_id')
+    except Exception:
+        pass
+    body = await request.json()
+    controller = DocumentSourceController(body)
+    try:
+        ret, err_msg = controller.document_sync_code_prd()
+        if err_msg:
+            return api_failure(40009, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/document/generate-outline")
+async def document_generate_outline(
+    request: Request,
+    user: dict = Depends(require_permission("document:generate")),
+    db: Session = Depends(get_db),
+):
+    """生成需求大纲（测点清单）"""
+    from flask import g
+    try:
+        g.current_user_id = user.get('user_id')
+    except Exception:
+        pass
+    body = await request.json()
+    controller = DocumentSourceController(body)
+    try:
+        ret, err_msg = controller.document_generate_outline()
+        if err_msg:
+            return api_failure(40009, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.get("/document/generation-plan/detail")
+async def document_generation_plan_detail(
+    request: Request,
+    user: dict = Depends(require_permission("document:generate")),
+    db: Session = Depends(get_db),
+):
+    """生成计划详情（大纲/候选/覆盖）"""
+    controller = DocumentSourceController(dict(request.query_params))
+    try:
+        ret, err_msg = controller.document_generation_plan_detail()
+        if err_msg:
+            return api_failure(40011, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.get("/document/generation-plan/latest")
+async def document_generation_plan_latest(
+    request: Request,
+    user: dict = Depends(require_permission("document:generate")),
+    db: Session = Depends(get_db),
+):
+    """按项目取最近一条生成计划（刷新后恢复向导）"""
+    controller = DocumentSourceController(dict(request.query_params))
+    try:
+        ret, err_msg = controller.document_generation_plan_latest()
+        if err_msg:
+            return api_failure(40011, msg=err_msg)
+        return api_success(data=ret or {})
+    finally:
+        controller.close_session()
+
+
+@router.post("/document/generation-plan/update")
+async def document_generation_plan_update(
+    request: Request,
+    user: dict = Depends(require_permission("document:generate")),
+    db: Session = Depends(get_db),
+):
+    """更新生成计划（勾选测点/候选）"""
+    body = await request.json()
+    controller = DocumentSourceController(body)
+    try:
+        ret, err_msg = controller.document_generation_plan_update()
+        if err_msg:
+            return api_failure(40009, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/document/generation-plan/coverage")
+async def document_generation_plan_coverage(
+    request: Request,
+    user: dict = Depends(require_permission("document:generate")),
+    db: Session = Depends(get_db),
+):
+    """刷新覆盖报告"""
+    body = await request.json()
+    controller = DocumentSourceController(body)
+    try:
+        ret, err_msg = controller.document_generation_plan_coverage()
+        if err_msg:
+            return api_failure(40009, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
+@router.post("/document/generation-plan/import")
+async def document_generation_plan_import(
+    request: Request,
+    user: dict = Depends(require_permission("document:import")),
+    db: Session = Depends(get_db),
+):
+    """确认导入预览候选用例"""
+    body = await request.json()
+    controller = DocumentSourceController(body)
+    try:
+        ret, err_msg = controller.document_generation_plan_import()
+        if err_msg:
+            return api_failure(40009, msg=err_msg)
+        return api_success(data=ret)
+    finally:
+        controller.close_session()
+
+
 @router.post("/document/generate-cases")
 async def document_generate_cases(
     request: Request,
@@ -139,21 +273,31 @@ async def document_generate_cases_streaming(
     db: Session = Depends(get_db),
 ):
     """生成测试用例（流式响应）"""
+    from flask import g
+    try:
+        g.current_user_id = user.get('user_id')
+    except Exception:
+        pass
     body = await request.json()
     controller = DocumentSourceController(body)
-    try:
-        result = controller.document_generate_cases_streaming()
-        return StreamingResponse(
-            result.response,
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            }
-        )
-    finally:
-        controller.close_session()
+    stream = controller.document_generate_cases_streaming()
+
+    def event_gen():
+        try:
+            for chunk in stream:
+                yield chunk
+        finally:
+            controller.close_session()
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @router.get("/document/generation-status")

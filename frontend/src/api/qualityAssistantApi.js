@@ -47,3 +47,12 @@ export function executeQualityAssistantAction (data) {
     timeout: 180000
   })
 }
+
+/** 用例向导关键步骤回写到质量助手会话留痕 */
+export function appendQualityAssistantWorkflowEvent (data) {
+  return request({
+    url: '/quality-assistant/workflow/event',
+    method: 'post',
+    data: data || {}
+  })
+}

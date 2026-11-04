@@ -317,8 +317,165 @@
         <el-tab-pane label="AI生成用例" name="ai-case-import">
           <div class="ai-case-import-wrap">
             <p class="ai-case-import-tip">
-              按条件查询用例；在下方文档列表中勾选要参与生成的文档，可在「技能与业务规则」中多选当前项目的 Skill 与规则；设置生成参数后点击「生成用例」。「导入」为上传 PDF 或新建飞书文档（与文档源「新建」一致）；Excel 导入用例请在「用例列表」Tab 使用「导入Excel」。
+              推荐流程：勾选文档 → <b>生成大纲</b> → 勾选测点 → <b>按测点精写（预览）</b> → 确认导入 → 查看覆盖缺口。也可继续用「直接生成」边写边入库（旧路径）。
             </p>
+
+            <div ref="aiQualityPanel" class="ai-quality-panel">
+              <div class="ai-quality-panel-head">
+                <span class="ai-quality-title">AI 质量</span>
+                <span class="ai-quality-sub">改写率 · 废稿率 · 直通率（有入库原貌起算）</span>
+                <el-button type="text" size="mini" :loading="aiQualityLoading" @click="fetchAiQualitySummary">刷新</el-button>
+              </div>
+              <div v-if="aiQualitySummary" class="ai-quality-metrics">
+                <div class="ai-quality-metric">
+                  <div class="ai-quality-metric-val">{{ formatAiRate(aiQualitySummary.rewriteRate) }}</div>
+                  <div class="ai-quality-metric-label">改写率</div>
+                </div>
+                <div class="ai-quality-metric">
+                  <div class="ai-quality-metric-val">{{ formatAiRate(aiQualitySummary.abandonRate) }}</div>
+                  <div class="ai-quality-metric-label">废稿率</div>
+                </div>
+                <div class="ai-quality-metric">
+                  <div class="ai-quality-metric-val">{{ formatAiRate(aiQualitySummary.passThroughRate) }}</div>
+                  <div class="ai-quality-metric-label">直通率</div>
+                </div>
+                <div class="ai-quality-metric">
+                  <div class="ai-quality-metric-val">{{ aiQualitySummary.trackedCount || 0 }}</div>
+                  <div class="ai-quality-metric-label">有原貌样本</div>
+                </div>
+              </div>
+              <p v-if="aiQualitySummary && aiQualitySummary.legacyNote" class="ai-quality-note">{{ aiQualitySummary.legacyNote }}</p>
+              <p v-else-if="!aiQualitySummary && !aiQualityLoading" class="ai-quality-note">选择项目后刷新，查看 AI 用例改写质量。</p>
+              <el-table
+                v-if="(aiQualityRewrittenList || []).length"
+                :data="aiQualityRewrittenList"
+                size="mini"
+                max-height="180"
+                style="margin-top: 8px;"
+                empty-text="暂无改写记录">
+                <el-table-column prop="caseKey" label="编号" width="110" show-overflow-tooltip></el-table-column>
+                <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip></el-table-column>
+                <el-table-column label="改写字段" min-width="120">
+                  <template slot-scope="scope">{{ (scope.row.rewriteFields || []).join('、') || '—' }}</template>
+                </el-table-column>
+                <el-table-column prop="rewrittenAt" label="改写时间" width="150"></el-table-column>
+              </el-table>
+            </div>
+
+            <div class="ai-wizard-bar">
+              <el-steps :active="aiWizardStep" finish-status="success" align-center simple>
+                <el-step title="选文档"></el-step>
+                <el-step title="大纲测点"></el-step>
+                <el-step title="精写预览"></el-step>
+                <el-step title="覆盖报告"></el-step>
+              </el-steps>
+              <div class="ai-wizard-actions">
+                <el-button
+                  type="primary"
+                  size="small"
+                  :loading="aiOutlineLoading"
+                  :disabled="!selectedProjectId || aiGenerateLoading || !aiSelectedDocIds.length"
+                  @click="handleAiGenerateOutline">
+                  1. 生成大纲
+                </el-button>
+                <el-button
+                  type="success"
+                  size="small"
+                  :loading="aiGenerateLoading"
+                  :disabled="!selectedProjectId || !aiPlanId || aiOutlineLoading"
+                  @click="handleAiGenerateFromPlan">
+                  2. 按测点精写（预览）
+                </el-button>
+                <el-button
+                  type="warning"
+                  size="small"
+                  :loading="aiImportPlanLoading"
+                  :disabled="!aiPlanId || !(aiCandidateCases || []).length"
+                  @click="handleAiImportPlanCases">
+                  3. 确认导入选中
+                </el-button>
+                <el-button
+                  size="small"
+                  :disabled="!aiPlanId"
+                  @click="handleAiRefreshCoverage">
+                  刷新覆盖
+                </el-button>
+                <el-button
+                  size="small"
+                  plain
+                  :disabled="!selectedProjectId || aiGenerateLoading"
+                  :loading="aiGenerateLoading"
+                  @click="handleAiGenerateCases">
+                  直接生成（自动入库）
+                </el-button>
+              </div>
+            </div>
+
+            <div v-if="aiPlanId" class="ai-outline-panel">
+              <div class="ai-outline-head">
+                <span>生成计划 #{{ aiPlanId }} · 测点 {{ (aiTestPoints || []).length }} · 候选 {{ (aiCandidateCases || []).length }}</span>
+                <el-tag size="mini" type="info">{{ aiImportMode === 'preview' ? '预览入库' : '自动入库' }}</el-tag>
+              </div>
+              <el-table
+                v-if="(aiTestPoints || []).length"
+                :data="aiTestPoints"
+                border
+                size="mini"
+                max-height="220"
+                row-key="id"
+                @selection-change="onAiTestPointSelectionChange"
+                ref="aiTestPointTable">
+                <el-table-column type="selection" width="42" reserve-selection></el-table-column>
+                <el-table-column prop="id" label="ID" width="70"></el-table-column>
+                <el-table-column prop="modulePath" label="模块" min-width="140" show-overflow-tooltip></el-table-column>
+                <el-table-column prop="title" label="测点" min-width="180" show-overflow-tooltip></el-table-column>
+                <el-table-column label="优先级" width="70">
+                  <template slot-scope="scope">P{{ scope.row.priority }}</template>
+                </el-table-column>
+                <el-table-column prop="reason" label="依据" min-width="160" show-overflow-tooltip></el-table-column>
+              </el-table>
+              <el-table
+                v-if="(aiCandidateCases || []).length"
+                :data="aiCandidateCases"
+                border
+                size="mini"
+                max-height="260"
+                style="margin-top: 10px;"
+                row-key="candidateId"
+                @selection-change="onAiCandidateSelectionChange"
+                ref="aiCandidateTable">
+                <el-table-column type="selection" width="42" reserve-selection></el-table-column>
+                <el-table-column prop="module_name" label="模块" min-width="140" show-overflow-tooltip></el-table-column>
+                <el-table-column prop="title" label="用例标题" min-width="180" show-overflow-tooltip></el-table-column>
+                <el-table-column label="近重复" width="90">
+                  <template slot-scope="scope">
+                    <el-tag v-if="scope.row.nearDup" type="warning" size="mini" effect="plain">疑似</el-tag>
+                    <span v-else style="color:#9ca3af;">—</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="testPointId" label="测点" width="80"></el-table-column>
+                <el-table-column prop="steps" label="步骤" min-width="160" show-overflow-tooltip></el-table-column>
+                <el-table-column prop="expected_result" label="预期" min-width="140" show-overflow-tooltip></el-table-column>
+              </el-table>
+              <p v-if="aiNearDupCount > 0" class="ai-neardup-tip">
+                有 {{ aiNearDupCount }} 条候选与库内用例疑似近重复（黄标），请人工确认后再导入，不会自动丢弃。
+              </p>
+              <div v-if="aiCoverage && (aiCoverage.totalPoints || 0) > 0" class="ai-coverage-box">
+                <div class="ai-coverage-summary">
+                  <span class="ai-coverage-mark">覆盖报告</span>
+                  覆盖：{{ aiCoverage.coveredCount || 0 }} / {{ aiCoverage.totalPoints || 0 }}
+                  · 缺口 {{ aiCoverage.uncoveredCount || 0 }}
+                  · 候选 {{ aiCoverage.candidateCount || 0 }}
+                </div>
+                <div v-if="(aiCoverage.uncovered || []).length" class="ai-coverage-gap">
+                  <b>未覆盖测点：</b>
+                  <span v-for="(item, idx) in aiCoverage.uncovered" :key="item.id || idx" class="ai-gap-item">
+                    {{ item.modulePath ? item.modulePath + ' / ' : '' }}{{ item.title }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <el-form :inline="true" :model="aiQueryForm" size="small" class="ai-case-query-form" @submit.native.prevent>
               <el-form-item label="模块">
                 <el-select v-model="aiQueryForm.moduleId" clearable filterable placeholder="全部" style="width: 200px;">
@@ -355,6 +512,17 @@
               </el-form-item>
               <el-form-item>
                 <el-button size="small" :disabled="!selectedProjectId" @click="openAiDocumentCreateDialog">导入</el-button>
+              </el-form-item>
+              <el-form-item>
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :disabled="!selectedProjectId"
+                  :loading="aiSyncCodePrdLoading"
+                  @click="handleSyncLatestCodePrd">
+                  同步最新代码PRD
+                </el-button>
               </el-form-item>
               <el-form-item>
                 <el-button
@@ -441,8 +609,9 @@
             </div>
 
             <div class="ai-doc-block">
-              <div class="ai-doc-block-title">文档来源（勾选后参与「生成用例」）</div>
+              <div class="ai-doc-block-title">文档来源（勾选后参与「生成用例」；可点「同步最新代码PRD」拉取项目设置里最新成功的代码转PRD）</div>
               <el-table
+                ref="aiDocTable"
                 v-loading="aiDocLoading"
                 :data="aiDocList"
                 border
@@ -450,11 +619,11 @@
                 max-height="240"
                 row-key="id"
                 @selection-change="onAiDocSelectionChange">
-                <el-table-column type="selection" width="46"></el-table-column>
+                <el-table-column type="selection" width="46" reserve-selection></el-table-column>
                 <el-table-column prop="id" label="文档ID" width="80"></el-table-column>
-                <el-table-column label="类型" width="72">
+                <el-table-column label="类型" width="100">
                   <template slot-scope="scope">
-                    <el-tag size="mini" :type="scope.row.type === 2 ? 'warning' : 'info'">{{ scope.row.type === 2 ? '飞书' : 'PDF' }}</el-tag>
+                    <el-tag size="mini" :type="aiDocTypeTag(scope.row).type">{{ aiDocTypeTag(scope.row).label }}</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column label="文件名称" min-width="160" show-overflow-tooltip>
@@ -815,7 +984,23 @@ import {
   updateCase,
   updateModule
 } from '@/api/caseApi'
-import { deleteDocument, getDocumentList, generateDocumentCases, generateDocumentCasesStreaming, cancelDocumentCaseGeneration, getDocumentCaseGenerationStatus } from '@/api/documentApi'
+import {
+  deleteDocument,
+  getDocumentList,
+  generateDocumentCases,
+  generateDocumentCasesStreaming,
+  cancelDocumentCaseGeneration,
+  getDocumentCaseGenerationStatus,
+  generateDocumentOutline,
+  updateGenerationPlan,
+  getGenerationPlanDetail,
+  getLatestGenerationPlan,
+  importGenerationPlanCases,
+  refreshGenerationPlanCoverage,
+  syncDocumentFromCodePrd
+} from '@/api/documentApi'
+import { appendQualityAssistantWorkflowEvent } from '@/api/qualityAssistantApi'
+import { getAiCaseQualitySummary, getAiCaseRewrittenList } from '@/api/aiCaseQualityApi'
 import { getSkillList, getBusinessRuleList } from '@/api/skillRuleApi'
 import { getProductList } from '@/api/productApi'
 import { getProjectDetail, getProjectList } from '@/api/projectApi'
@@ -972,6 +1157,23 @@ export default {
         errors: [],
         logs: []
       },
+      aiWizardStep: 0,
+      aiOutlineLoading: false,
+      aiImportPlanLoading: false,
+      aiSyncCodePrdLoading: false,
+      aiPlanId: null,
+      aiImportMode: 'preview',
+      aiTestPoints: [],
+      aiSelectedTestPointIds: [],
+      aiCandidateCases: [],
+      aiSelectedCandidateIds: [],
+      aiCoverage: null,
+      qaBootstrap: null,
+      qaAutoRunning: false,
+      qaAutoRunConsumedKey: '',
+      aiQualityLoading: false,
+      aiQualitySummary: null,
+      aiQualityRewrittenList: [],
       aiSelectedCases: [],
       aiBatchDeleting: false,
       aiBatchSyncing: false,
@@ -1046,6 +1248,9 @@ export default {
       const treeData = this.caseMindmapTreeData || []
       return treeData.map(item => item.id)
     },
+    aiNearDupCount() {
+      return (this.aiCandidateCases || []).filter(c => c && c.nearDup).length
+    }
   },
   watch: {
     activeTab(val) {
@@ -1054,10 +1259,29 @@ export default {
       }
       if (val === 'ai-case-import' && this.projectId) {
         this.fetchAiCaseList()
-        this.fetchAiDocList()
-        this.fetchAiSkillRuleOptions()
         this.checkAiGenerationStatus()
+        this.fetchAiQualitySummary()
+        Promise.all([
+          this.fetchAiDocList({ autoSync: false }),
+          this.fetchAiSkillRuleOptions(),
+          this.restoreLatestAiPlan()
+        ]).finally(() => {
+          this.applyQaBootstrapAndMaybeAutoRun()
+          this.scrollToAiQualityIfNeeded()
+        })
       }
+    },
+    '$route.query': {
+      handler () {
+        this.captureQaBootstrapFromRoute()
+        if (this.activeTab === 'ai-case-import' && this.projectId) {
+          this.$nextTick(() => {
+            this.applyQaBootstrapAndMaybeAutoRun()
+            this.scrollToAiQualityIfNeeded()
+          })
+        }
+      },
+      deep: true
     }
   },
   methods: {
@@ -1156,6 +1380,7 @@ export default {
         this.aiRuleOptions = []
         this.aiGenSelectedSkillIds = []
         this.aiGenSelectedRuleIds = []
+        this.clearAiPlanState()
         this.clearAiCaseTableSelection()
         return
       }
@@ -1168,6 +1393,7 @@ export default {
         this.fetchAiCaseList()
         this.fetchAiDocList()
         this.fetchAiSkillRuleOptions()
+        this.restoreLatestAiPlan()
       }
     },
     restoreSharedProductProjectCache() {
@@ -1665,32 +1891,86 @@ export default {
           this.clearAiCaseTableSelection()
         })
     },
-    fetchAiDocList() {
+    fetchAiDocList(options = {}) {
       if (!this.projectId) {
         this.aiDocList = []
         this.aiSelectedDocIds = []
-        return
+        return Promise.resolve()
       }
-      this.aiDocLoading = true
-      getDocumentList(
+      const autoSync = options.autoSync !== false
+      const loadList = () => getDocumentList(
         this.cleanParams({
           productId: this.selectedProductId || undefined,
           projectId: this.projectId,
           pageNo: 1,
           pageSize: 500
         })
-      )
-        .then(res => {
-          const data = (res && res.data) || res || {}
-          const list = data.list || data.items || []
-          this.aiDocList = Array.isArray(list) ? list : []
-        })
+      ).then(res => {
+        const data = (res && res.data) || res || {}
+        const list = data.list || data.items || []
+        this.aiDocList = Array.isArray(list) ? list : []
+        return this.aiDocList
+      })
+
+      this.aiDocLoading = true
+      const syncPromise = autoSync
+        ? syncDocumentFromCodePrd({ projectId: Number(this.projectId) }).catch(() => null)
+        : Promise.resolve(null)
+
+      return syncPromise
+        .then(() => loadList())
         .catch(() => {
           this.aiDocList = []
         })
         .finally(() => {
           this.aiDocLoading = false
+          this.$nextTick(() => this.syncAiDocTableSelection())
         })
+    },
+    syncAiDocTableSelection() {
+      const table = this.$refs.aiDocTable
+      if (!table || !(this.aiDocList || []).length) return
+      const selected = new Set((this.aiSelectedDocIds || []).map(id => Number(id)))
+      table.clearSelection()
+      this.aiDocList.forEach(row => {
+        if (selected.has(Number(row.id))) {
+          table.toggleRowSelection(row, true)
+        }
+      })
+    },
+    handleSyncLatestCodePrd() {
+      if (!this.projectId) {
+        this.$message.warning('请先选择项目')
+        return
+      }
+      this.aiSyncCodePrdLoading = true
+      syncDocumentFromCodePrd({ projectId: Number(this.projectId) })
+        .then(res => {
+          const data = (res && res.data) || {}
+          this.$message.success(`已同步代码PRD「${data.title || ''}」为文档源`)
+          return this.fetchAiDocList({ autoSync: false }).then(() => {
+            const docId = data.documentId
+            if (docId && this.aiSelectedDocIds.indexOf(docId) < 0) {
+              this.aiSelectedDocIds = this.aiSelectedDocIds.concat([docId])
+            }
+          })
+        })
+        .catch(err => {
+          this.$message.warning((err && err.message) || '同步失败：请先在项目设置生成成功的代码转PRD')
+        })
+        .finally(() => {
+          this.aiSyncCodePrdLoading = false
+        })
+    },
+    aiDocTypeTag(row) {
+      const source = String((row && row.source) || '')
+      if (source.indexOf('code-prd://') === 0 || (row && row.aiModel === 'code-prd') || (row && row.ai_model === 'code-prd')) {
+        return { label: '代码PRD', type: 'success' }
+      }
+      if (row && row.type === 2) return { label: '飞书', type: 'warning' }
+      if (row && row.type === 3) return { label: 'Excel', type: '' }
+      if (row && row.type === 4) return { label: 'Markdown', type: 'info' }
+      return { label: 'PDF', type: 'info' }
     },
     fetchAiSkillRuleOptions() {
       if (!this.projectId) {
@@ -1912,6 +2192,10 @@ export default {
       }
       const s = String(row.source || '')
       if (!s) return '—'
+      if (s.indexOf('code-prd://') === 0) {
+        const name = s.split('/').pop() || s
+        return name.replace(/\.md$/i, '') || '代码转PRD'
+      }
       const norm = s.replace(/\\/g, '/')
       const parts = norm.split('/')
       return parts[parts.length - 1] || s
@@ -2030,6 +2314,458 @@ export default {
           this.$message.warning(msg)
         })
     },
+    clearAiPlanState() {
+      this.aiPlanId = null
+      this.aiWizardStep = 0
+      this.aiTestPoints = []
+      this.aiSelectedTestPointIds = []
+      this.aiCandidateCases = []
+      this.aiSelectedCandidateIds = []
+      this.aiCoverage = null
+      this.aiImportMode = 'preview'
+    },
+    restoreLatestAiPlan() {
+      const projectId = Number(this.projectId || this.selectedProjectId || 0)
+      if (!projectId) {
+        this.clearAiPlanState()
+        return Promise.resolve()
+      }
+      return getLatestGenerationPlan({ projectId })
+        .then(res => {
+          const plan = (res && res.data) || {}
+          if (!plan || !plan.id) {
+            this.clearAiPlanState()
+            return
+          }
+          this.applyAiPlanPayload(plan)
+          this.$nextTick(() => this.syncAiDocTableSelection())
+        })
+        .catch(() => {})
+    },
+    applyAiPlanPayload(plan) {
+      if (!plan || !plan.id) return
+      this.aiPlanId = plan.id
+      this.aiImportMode = plan.importMode || 'preview'
+      const outline = plan.outline || {}
+      this.aiTestPoints = Array.isArray(outline.testPoints) ? outline.testPoints.slice() : []
+      this.aiCandidateCases = Array.isArray(plan.candidateCases) ? plan.candidateCases.slice() : []
+      this.aiCoverage = plan.coverage || null
+      this.aiWizardStep = this.aiCoverage && this.aiCoverage.totalPoints
+        ? 3
+        : (this.aiCandidateCases.length ? 2 : (this.aiTestPoints.length ? 1 : 0))
+      const docIds = Array.isArray(plan.documentIds) ? plan.documentIds.map(id => Number(id)).filter(Boolean) : []
+      if (docIds.length) {
+        this.aiSelectedDocIds = docIds
+      }
+      this.$nextTick(() => {
+        const tpTable = this.$refs.aiTestPointTable
+        if (tpTable && this.aiTestPoints.length) {
+          tpTable.clearSelection()
+          this.aiTestPoints.forEach(row => {
+            if (row.selected !== false) tpTable.toggleRowSelection(row, true)
+          })
+        }
+        const cTable = this.$refs.aiCandidateTable
+        if (cTable && this.aiCandidateCases.length) {
+          cTable.clearSelection()
+          this.aiCandidateCases.forEach(row => {
+            if (row.selected !== false) cTable.toggleRowSelection(row, true)
+          })
+        }
+        this.syncAiDocTableSelection()
+      })
+    },
+    onAiTestPointSelectionChange(rows) {
+      this.aiSelectedTestPointIds = (rows || []).map(r => r.id)
+      const selectedSet = new Set(this.aiSelectedTestPointIds)
+      // 就地更新 selected，避免替换行对象导致 el-table 勾选被重置
+      ;(this.aiTestPoints || []).forEach(p => {
+        const next = selectedSet.has(p.id)
+        if (p.selected !== next) this.$set(p, 'selected', next)
+      })
+    },
+    onAiCandidateSelectionChange(rows) {
+      this.aiSelectedCandidateIds = (rows || []).map(r => r.candidateId)
+      const selectedSet = new Set(this.aiSelectedCandidateIds)
+      ;(this.aiCandidateCases || []).forEach(c => {
+        const next = selectedSet.has(c.candidateId)
+        if (c.selected !== next) this.$set(c, 'selected', next)
+      })
+    },
+    buildAiGenCommonPayload() {
+      const tags =
+        Array.isArray(this.aiGenForm.tags) && this.aiGenForm.tags.length
+          ? this.aiGenForm.tags.slice()
+          : ['AI生成']
+      const normalizePositiveIds = arr =>
+        (Array.isArray(arr) ? arr : [])
+          .map(id => Number(id))
+          .filter(id => Number.isFinite(id) && id > 0)
+      return {
+        tags,
+        skillIds: normalizePositiveIds(this.aiGenSelectedSkillIds),
+        ruleIds: normalizePositiveIds(this.aiGenSelectedRuleIds)
+      }
+    },
+    formatAiRate(rate) {
+      if (rate === null || rate === undefined || rate === '') return '—'
+      return `${Math.round(Number(rate) * 1000) / 10}%`
+    },
+    fetchAiQualitySummary() {
+      if (!this.projectId) {
+        this.aiQualitySummary = null
+        this.aiQualityRewrittenList = []
+        return Promise.resolve()
+      }
+      this.aiQualityLoading = true
+      return Promise.all([
+        getAiCaseQualitySummary({ projectId: Number(this.projectId) }),
+        getAiCaseRewrittenList({ projectId: Number(this.projectId), pageNo: 1, pageSize: 8, status: 'rewritten' })
+      ])
+        .then(([sumRes, listRes]) => {
+          this.aiQualitySummary = (sumRes && sumRes.data) || null
+          const listData = (listRes && listRes.data) || {}
+          this.aiQualityRewrittenList = listData.list || []
+        })
+        .catch(() => {
+          this.aiQualitySummary = null
+          this.aiQualityRewrittenList = []
+        })
+        .finally(() => {
+          this.aiQualityLoading = false
+        })
+    },
+    scrollToAiQualityIfNeeded() {
+      const q = (this.$route && this.$route.query) || {}
+      if (String(q.aiQuality || '') !== '1') return
+      this.$nextTick(() => {
+        const el = this.$refs.aiQualityPanel
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    },
+    parseQaIdList(raw) {
+      if (Array.isArray(raw)) {
+        return raw.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0)
+      }
+      return String(raw || '')
+        .split(',')
+        .map(s => Number(String(s).trim()))
+        .filter(id => Number.isFinite(id) && id > 0)
+    },
+    captureQaBootstrapFromRoute() {
+      const q = (this.$route && this.$route.query) || {}
+      const qaSessionId = q.qaSessionId || q.qa_session_id
+      if (!qaSessionId) return null
+      const runMode = String(q.runMode || q.run_mode || 'confirm').trim().toLowerCase() === 'auto'
+        ? 'auto'
+        : 'confirm'
+      this.qaBootstrap = {
+        qaSessionId: String(qaSessionId),
+        runMode,
+        documentIds: this.parseQaIdList(q.documentIds || q.document_ids),
+        skillIds: this.parseQaIdList(q.skillIds || q.skill_ids),
+        ruleIds: this.parseQaIdList(q.ruleIds || q.rule_ids)
+      }
+      return this.qaBootstrap
+    },
+    reportQaWorkflowEvent(event, summary, metrics) {
+      const sid =
+        (this.qaBootstrap && this.qaBootstrap.qaSessionId) ||
+        (this.$route.query && (this.$route.query.qaSessionId || this.$route.query.qa_session_id))
+      if (!sid || !event || !summary) return Promise.resolve()
+      const body = {
+        session_id: sid,
+        event,
+        summary,
+        metrics: metrics || {}
+      }
+      if (this.aiPlanId) body.plan_id = this.aiPlanId
+      return appendQualityAssistantWorkflowEvent(body).catch(() => null)
+    },
+    applyQaBootstrapAndMaybeAutoRun() {
+      const boot = this.captureQaBootstrapFromRoute() || this.qaBootstrap
+      if (!boot || !boot.qaSessionId || !this.projectId) return
+      if (this.activeTab !== 'ai-case-import') return
+      if (this.qaAutoRunning) return
+
+      const consumeKey = [
+        boot.qaSessionId,
+        boot.runMode,
+        (boot.documentIds || []).join('-'),
+        (boot.skillIds || []).join('-'),
+        (boot.ruleIds || []).join('-')
+      ].join('|')
+      if (this.qaAutoRunConsumedKey === consumeKey) return
+
+      const ensureLists = Promise.all([
+        this.fetchAiDocList({ autoSync: false }),
+        this.fetchAiSkillRuleOptions()
+      ])
+
+      ensureLists
+        .then(() => {
+          if (boot.documentIds && boot.documentIds.length) {
+            this.aiSelectedDocIds = boot.documentIds.slice()
+            this.$nextTick(() => this.syncAiDocTableSelection())
+          }
+          if (boot.skillIds && boot.skillIds.length) {
+            this.aiGenSelectedSkillIds = boot.skillIds.slice()
+          }
+          if (boot.ruleIds && boot.ruleIds.length) {
+            this.aiGenSelectedRuleIds = boot.ruleIds.slice()
+          }
+
+          this.qaAutoRunConsumedKey = consumeKey
+          const modeLabel = boot.runMode === 'auto' ? '全自动' : '逐步确认'
+          this.reportQaWorkflowEvent(
+            'wizard_opened',
+            `已打开并预填 AI 生成用例向导（模式：${modeLabel}）`,
+            {
+              runMode: boot.runMode,
+              documentIds: boot.documentIds,
+              skillIds: boot.skillIds,
+              ruleIds: boot.ruleIds
+            }
+          )
+
+          if (boot.runMode !== 'auto') {
+            this.$message.success('已从质量助手预填文档与 Skills，请点击「生成大纲」继续')
+            return null
+          }
+
+          const storageKey = `qa_auto_ran_${boot.qaSessionId}_${(boot.documentIds || []).join('-')}`
+          try {
+            if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(storageKey) === '1') {
+              this.$message.info('本会话全自动向导已执行过，如需重跑请在质量助手重新打开')
+              return null
+            }
+            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(storageKey, '1')
+          } catch (e) { /* ignore */ }
+
+          return this.runQaAutoWizard()
+        })
+        .catch(err => {
+          const msg = (err && err.message) || '质量助手预填失败'
+          this.$message.error(msg)
+          this.reportQaWorkflowEvent('wizard_failed', msg)
+        })
+    },
+    runQaAutoWizard() {
+      if (this.qaAutoRunning) return Promise.resolve()
+      this.qaAutoRunning = true
+      this.$message.info('质量助手全自动模式：开始串行执行向导…')
+      return this.executeAiGenerateOutline({ silentSuccess: true })
+        .then(() => {
+          ;(this.aiTestPoints || []).forEach(p => this.$set(p, 'selected', true))
+          this.aiSelectedTestPointIds = (this.aiTestPoints || []).map(p => p.id)
+          this.$nextTick(() => {
+            const table = this.$refs.aiTestPointTable
+            if (table && this.aiTestPoints.length) {
+              table.clearSelection()
+              this.aiTestPoints.forEach(row => table.toggleRowSelection(row, true))
+            }
+          })
+          return updateGenerationPlan({
+            planId: this.aiPlanId,
+            testPoints: this.aiTestPoints,
+            importMode: 'preview'
+          })
+        })
+        .then(() => {
+          const { tags, skillIds, ruleIds } = this.buildAiGenCommonPayload()
+          return this.startAiGenerateCases('restart', tags, skillIds, ruleIds, {
+            planId: this.aiPlanId,
+            importMode: 'preview',
+            documentIds: this.aiSelectedDocIds.length ? this.aiSelectedDocIds.slice() : undefined,
+            skipConfirm: true
+          })
+        })
+        .then(() => this.executeAiImportPlanCases({ selectAll: true, silentSuccess: true }))
+        .then(() => this.executeAiRefreshCoverage({ silentSuccess: true }))
+        .then(() => {
+          this.$message.success('质量助手全自动向导已完成')
+        })
+        .catch(err => {
+          const msg = (err && err.message) || '全自动向导失败'
+          this.$message.error(msg)
+          return this.reportQaWorkflowEvent('wizard_failed', msg)
+        })
+        .finally(() => {
+          this.qaAutoRunning = false
+        })
+    },
+    executeAiGenerateOutline(options = {}) {
+      if (!this.projectId) {
+        return Promise.reject(new Error('请先选择项目'))
+      }
+      if (!this.aiSelectedDocIds.length) {
+        return Promise.reject(new Error('请先在文档列表中勾选至少一个文档'))
+      }
+      const { tags, skillIds, ruleIds } = this.buildAiGenCommonPayload()
+      const payload = {
+        documentIds: this.aiSelectedDocIds.slice(),
+        projectId: Number(this.projectId),
+        priority: this.aiGenForm.priority,
+        caseType: this.aiGenForm.caseType,
+        tags,
+        importMode: 'preview'
+      }
+      if (skillIds.length) payload.skillIds = skillIds
+      if (ruleIds.length) payload.ruleIds = ruleIds
+      this.aiOutlineLoading = true
+      return generateDocumentOutline(payload)
+        .then(res => {
+          const plan = (res && res.data) || res || {}
+          this.applyAiPlanPayload(plan)
+          const count = ((plan.outline && plan.outline.testPoints) || []).length
+          if (!count) {
+            const warn = '大纲已生成，但未识别到测点，请重试或检查文档内容'
+            this.$message.warning(warn)
+            return Promise.reject(new Error(warn))
+          }
+          this.aiWizardStep = 1
+          if (!options.silentSuccess) {
+            this.$message.success(`大纲已生成：${count} 个测点`)
+          }
+          return this.reportQaWorkflowEvent(
+            'outline_done',
+            `大纲已生成：${count} 个测点`,
+            { testPointCount: count, planId: this.aiPlanId }
+          ).then(() => plan)
+        })
+        .finally(() => {
+          this.aiOutlineLoading = false
+        })
+    },
+    handleAiGenerateOutline() {
+      this.executeAiGenerateOutline()
+        .catch(err => {
+          this.$message.error((err && err.message) || '生成大纲失败')
+        })
+    },
+    handleAiGenerateFromPlan() {
+      if (!this.aiPlanId) {
+        this.$message.warning('请先生成大纲')
+        return
+      }
+      const selectedPoints = (this.aiTestPoints || []).filter(p => p.selected !== false)
+      if (!selectedPoints.length) {
+        this.$message.warning('请至少勾选一个测点')
+        return
+      }
+      this.aiOutlineLoading = true
+      updateGenerationPlan({
+        planId: this.aiPlanId,
+        testPoints: this.aiTestPoints,
+        importMode: 'preview'
+      })
+        .then(() => {
+          const { tags, skillIds, ruleIds } = this.buildAiGenCommonPayload()
+          return this.startAiGenerateCases('restart', tags, skillIds, ruleIds, {
+            planId: this.aiPlanId,
+            importMode: 'preview',
+            documentIds: this.aiSelectedDocIds.length
+              ? this.aiSelectedDocIds.slice()
+              : undefined
+          })
+        })
+        .catch(err => {
+          this.$message.error((err && err.message) || '保存测点失败')
+        })
+        .finally(() => {
+          this.aiOutlineLoading = false
+        })
+    },
+    executeAiImportPlanCases(options = {}) {
+      if (!this.aiPlanId) {
+        return Promise.reject(new Error('缺少生成计划'))
+      }
+      let candidateIds = this.aiSelectedCandidateIds.length
+        ? this.aiSelectedCandidateIds.slice()
+        : (this.aiCandidateCases || []).filter(c => c.selected !== false).map(c => c.candidateId)
+      if (options.selectAll) {
+        candidateIds = (this.aiCandidateCases || []).map(c => c.candidateId).filter(Boolean)
+        ;(this.aiCandidateCases || []).forEach(c => this.$set(c, 'selected', true))
+        this.aiSelectedCandidateIds = candidateIds.slice()
+      }
+      if (!candidateIds.length) {
+        return Promise.reject(new Error('请勾选要导入的候选用例'))
+      }
+      this.aiImportPlanLoading = true
+      return importGenerationPlanCases({ planId: this.aiPlanId, candidateIds })
+        .then(res => {
+          const data = (res && res.data) || {}
+          const result = data.importResult || {}
+          this.applyAiPlanPayload(data)
+          this.aiWizardStep = 3
+          const successCount = result.successCount || 0
+          const skippedCount = result.skippedCount || 0
+          if (!options.silentSuccess) {
+            this.$message.success(`已导入 ${successCount} 条，跳过 ${skippedCount} 条`)
+          }
+          this.fetchAiCaseList && this.fetchAiCaseList()
+          this.fetchAiQualitySummary()
+          return this.reportQaWorkflowEvent(
+            'import_done',
+            `已导入 ${successCount} 条，跳过 ${skippedCount} 条`,
+            { successCount, skippedCount, planId: this.aiPlanId }
+          ).then(() => data)
+        })
+        .finally(() => {
+          this.aiImportPlanLoading = false
+        })
+    },
+    handleAiImportPlanCases() {
+      this.executeAiImportPlanCases()
+        .catch(err => {
+          this.$message.error((err && err.message) || '导入失败')
+        })
+    },
+    executeAiRefreshCoverage(options = {}) {
+      if (!this.aiPlanId) {
+        return Promise.reject(new Error('缺少生成计划'))
+      }
+      return refreshGenerationPlanCoverage({ planId: this.aiPlanId })
+        .then(res => {
+          const data = (res && res.data) || {}
+          this.applyAiPlanPayload(data)
+          this.aiWizardStep = 3
+          if (!options.silentSuccess) {
+            this.$message.success('覆盖报告已刷新')
+          }
+          const cov = this.aiCoverage || data.coverage || {}
+          const covered = cov.coveredCount != null ? cov.coveredCount : cov.covered
+          const uncovered = cov.uncoveredCount != null ? cov.uncoveredCount : cov.uncovered
+          const total =
+            cov.totalCount != null
+              ? cov.totalCount
+              : (covered != null && uncovered != null ? Number(covered) + Number(uncovered) : cov.total)
+          const summary =
+            covered != null && total != null
+              ? `覆盖报告已刷新：${covered}/${total}${uncovered != null ? `，缺口 ${uncovered}` : ''}`
+              : '覆盖报告已刷新'
+          return this.reportQaWorkflowEvent('coverage_done', summary, {
+            covered,
+            total,
+            uncovered,
+            planId: this.aiPlanId
+          }).then(() => data)
+        })
+    },
+    handleAiRefreshCoverage() {
+      this.executeAiRefreshCoverage()
+        .catch(err => {
+          this.$message.error((err && err.message) || '刷新覆盖失败')
+        })
+    },
+    reloadAiPlanDetail() {
+      if (!this.aiPlanId) return Promise.resolve()
+      return getGenerationPlanDetail({ planId: this.aiPlanId })
+        .then(res => {
+          this.applyAiPlanPayload((res && res.data) || {})
+        })
+        .catch(() => {})
+    },
     handleAiGenerateCases() {
       if (!this.projectId) {
         this.$message.warning('请先选择项目')
@@ -2043,40 +2779,33 @@ export default {
         this.$message.warning('请先在文档列表中勾选至少一个文档')
         return
       }
-      const tags =
-        Array.isArray(this.aiGenForm.tags) && this.aiGenForm.tags.length
-          ? this.aiGenForm.tags.slice()
-          : ['AI生成']
-      const normalizePositiveIds = arr =>
-        (Array.isArray(arr) ? arr : [])
-          .map(id => Number(id))
-          .filter(id => Number.isFinite(id) && id > 0)
-      const skillIds = normalizePositiveIds(this.aiGenSelectedSkillIds)
-      const ruleIds = normalizePositiveIds(this.aiGenSelectedRuleIds)
+      const { tags, skillIds, ruleIds } = this.buildAiGenCommonPayload()
       this.$confirm('请选择本次AI生成方式。接着执行会跳过已完成的需求点，只从未完成或失败的需求点继续；重新开始会清空本次文档和参数下的断点记录后从头生成。', 'AI生成方式', {
         confirmButtonText: '接着执行',
         cancelButtonText: '重新开始',
         distinguishCancelAndClose: true,
         type: 'warning'
       }).then(() => {
-        this.startAiGenerateCases('resume', tags, skillIds, ruleIds)
+        this.startAiGenerateCases('resume', tags, skillIds, ruleIds, { importMode: 'auto' })
       }).catch(action => {
         if (action === 'cancel') {
-          this.startAiGenerateCases('restart', tags, skillIds, ruleIds)
+          this.startAiGenerateCases('restart', tags, skillIds, ruleIds, { importMode: 'auto' })
         }
       })
     },
-    startAiGenerateCases(resumeMode, tags, skillIds, ruleIds) {
+    startAiGenerateCases(resumeMode, tags, skillIds, ruleIds, extra = {}) {
       const generationId = this.createAiGenerationId()
       const payload = {
-        documentIds: this.aiSelectedDocIds.slice(),
+        documentIds: (extra.documentIds || this.aiSelectedDocIds).slice(),
         projectId: Number(this.projectId),
         generationId,
         resumeMode,
         priority: this.aiGenForm.priority,
         caseType: this.aiGenForm.caseType,
-        tags
+        tags,
+        importMode: extra.importMode || 'auto'
       }
+      if (extra.planId) payload.planId = extra.planId
       if (skillIds.length) payload.skillIds = skillIds
       if (ruleIds.length) payload.ruleIds = ruleIds
 
@@ -2096,113 +2825,163 @@ export default {
       this.aiGenProgress.logs = []
       this.startAiGenerationStatusPolling()
 
-      this.aiGenerateStream = generateDocumentCasesStreaming(
-        payload,
-        // onEvent: 收到SSE事件
-        (parsed) => {
-          const event = parsed.event
-          const data = parsed.data || {}
-          if (event === 'start') {
-            this.aiGenerationId = data.generationId || this.aiGenerationId
-          } else if (event === 'agent_plan') {
-            this.aiGenProgress.totalChunks = data.totalChunks || 0
-            this.aiGenProgress.chunkTitle = data.message || '已拆分测试点任务，正在并发生成'
-            if (data.resumeSkippedCount) {
-              this.pushAiGenLog({
-                level: 'info',
-                message: `断点续跑：已跳过${data.resumeSkippedCount}个已完成生成点，继续执行剩余${data.totalChunks || 0}个生成点`
+      let settled = false
+      return new Promise((resolve, reject) => {
+        const settleOk = (data) => {
+          if (settled) return
+          settled = true
+          resolve(data || {})
+        }
+        const settleErr = (err) => {
+          if (settled) return
+          settled = true
+          reject(err instanceof Error ? err : new Error((err && err.message) || '生成失败'))
+        }
+
+        this.aiGenerateStream = generateDocumentCasesStreaming(
+          payload,
+          // onEvent: 收到SSE事件
+          (parsed) => {
+            const event = parsed.event
+            const data = parsed.data || {}
+            if (event === 'start') {
+              this.aiGenerationId = data.generationId || this.aiGenerationId
+            } else if (event === 'agent_plan') {
+              this.aiGenProgress.totalChunks = data.totalChunks || 0
+              this.aiGenProgress.chunkTitle = data.message || '已拆分测试点任务，正在并发生成'
+              if (data.resumeSkippedCount) {
+                this.pushAiGenLog({
+                  level: 'info',
+                  message: `断点续跑：已跳过${data.resumeSkippedCount}个已完成生成点，继续执行剩余${data.totalChunks || 0}个生成点`
+                })
+              }
+            } else if (event === 'agent_start') {
+              this.aiGenProgress.chunkIndex = data.chunkIndex || this.aiGenProgress.chunkIndex
+              this.aiGenProgress.totalChunks = data.totalChunks || this.aiGenProgress.totalChunks
+              this.aiGenProgress.chunkTitle = data.chunkTitle || data.agentName || ''
+              this.aiGenProgress.casesCount = 0
+            } else if (event === 'agent_log') {
+              this.pushAiGenLog(data)
+            } else if (event === 'ai_retry') {
+              this.pushAiGenLog(Object.assign({}, data, { level: 'warning' }))
+            } else if (event === 'heartbeat') {
+              this.aiGenProgress.chunkIndex = data.chunkIndex || this.aiGenProgress.chunkIndex
+              this.aiGenProgress.totalChunks = data.totalChunks || this.aiGenProgress.totalChunks
+              this.aiGenProgress.chunkTitle = data.chunkTitle || this.aiGenProgress.chunkTitle
+              this.pushAiGenLog(data)
+            } else if (event === 'chunk_start') {
+              this.aiGenProgress.chunkIndex = data.chunkIndex || 0
+              this.aiGenProgress.totalChunks = data.totalChunks || 0
+              this.aiGenProgress.chunkTitle = data.chunkTitle || ''
+              this.aiGenProgress.casesCount = 0
+              this.aiGenProgress.totalCasesSoFar = data.totalCasesSoFar || this.aiGenProgress.totalCasesSoFar
+            } else if (event === 'progress') {
+              this.aiGenProgress.chunkIndex = data.chunkIndex || 0
+              this.aiGenProgress.totalChunks = data.totalChunks || 0
+              this.aiGenProgress.chunkTitle = data.chunkTitle || ''
+              this.aiGenProgress.casesCount = data.casesCount || 0
+              this.aiGenProgress.totalCasesSoFar = data.totalCasesSoFar || 0
+              this.aiGenProgress.totalSkipped = data.totalSkipped || this.aiGenProgress.totalSkipped || 0
+            } else if (event === 'chunk_error') {
+              this.aiGenProgress.errors.push({
+                chunkIndex: data.chunkIndex,
+                error: data.error
               })
-            }
-          } else if (event === 'agent_start') {
-            this.aiGenProgress.chunkIndex = data.chunkIndex || this.aiGenProgress.chunkIndex
-            this.aiGenProgress.totalChunks = data.totalChunks || this.aiGenProgress.totalChunks
-            this.aiGenProgress.chunkTitle = data.chunkTitle || data.agentName || ''
-            this.aiGenProgress.casesCount = 0
-          } else if (event === 'agent_log') {
-            this.pushAiGenLog(data)
-          } else if (event === 'ai_retry') {
-            this.pushAiGenLog(Object.assign({}, data, { level: 'warning' }))
-          } else if (event === 'heartbeat') {
-            this.aiGenProgress.chunkIndex = data.chunkIndex || this.aiGenProgress.chunkIndex
-            this.aiGenProgress.totalChunks = data.totalChunks || this.aiGenProgress.totalChunks
-            this.aiGenProgress.chunkTitle = data.chunkTitle || this.aiGenProgress.chunkTitle
-            this.pushAiGenLog(data)
-          } else if (event === 'chunk_start') {
-            this.aiGenProgress.chunkIndex = data.chunkIndex || 0
-            this.aiGenProgress.totalChunks = data.totalChunks || 0
-            this.aiGenProgress.chunkTitle = data.chunkTitle || ''
-            this.aiGenProgress.casesCount = 0
-            this.aiGenProgress.totalCasesSoFar = data.totalCasesSoFar || this.aiGenProgress.totalCasesSoFar
-          } else if (event === 'progress') {
-            this.aiGenProgress.chunkIndex = data.chunkIndex || 0
-            this.aiGenProgress.totalChunks = data.totalChunks || 0
-            this.aiGenProgress.chunkTitle = data.chunkTitle || ''
-            this.aiGenProgress.casesCount = data.casesCount || 0
-            this.aiGenProgress.totalCasesSoFar = data.totalCasesSoFar || 0
-            this.aiGenProgress.totalSkipped = data.totalSkipped || this.aiGenProgress.totalSkipped || 0
-          } else if (event === 'chunk_error') {
-            this.aiGenProgress.errors.push({
-              chunkIndex: data.chunkIndex,
-              error: data.error
-            })
-          } else if (event === 'cancelled') {
-            const importedCount = data.importedCount || 0
-            const skippedCount = data.skippedCount || 0
-            this.$message.info(importedCount > 0 || skippedCount > 0 ? `已停止生成，已导入${importedCount}条，跳过重复${skippedCount}条` : '已停止生成')
-            this.fetchAiCaseList()
-            this.fetchList()
-            this.fetchCaseMindmapData()
-            this.fetchAiDocList()
-          } else if (event === 'done') {
-            const totalCases = data.totalCases || 0
-            const importedCount = data.importedCount || data.totalImported || 0
-            const skippedCount = data.skippedCount || data.totalSkipped || 0
-            this.aiGenProgress.totalSkipped = skippedCount
-            if (totalCases > 0 || importedCount > 0 || skippedCount > 0) {
-              this.$message.success(`生成完成，共返回${totalCases}条，已导入${importedCount}条，跳过重复${skippedCount}条`)
+            } else if (event === 'cancelled') {
+              const importedCount = data.importedCount || 0
+              const skippedCount = data.skippedCount || 0
+              this.$message.info(importedCount > 0 || skippedCount > 0 ? `已停止生成，已导入${importedCount}条，跳过重复${skippedCount}条` : '已停止生成')
               this.fetchAiCaseList()
               this.fetchList()
               this.fetchCaseMindmapData()
               this.fetchAiDocList()
-            } else if (data.resumeSkippedCount) {
-              this.$message.success(data.message || `所有生成点已完成，已跳过${data.resumeSkippedCount}个生成点`)
-            } else {
-              this.$message.warning('AI未生成任何测试用例，请检查文档内容')
-            }
-            if (data.hasError || (data.failedChunks && data.failedChunks.length)) {
-              const errMsgs = (data.failedChunks || []).map(f => f.error || '未知错误').join('; ')
-              if (errMsgs) {
-                this.$message.warning(`部分分段生成失败: ${errMsgs}`)
+              settleErr(new Error('生成已停止'))
+            } else if (event === 'done') {
+              const totalCases = data.totalCases || 0
+              const importedCount = data.importedCount || data.totalImported || 0
+              const skippedCount = data.skippedCount || data.totalSkipped || 0
+              const isPreview = (data.importMode || payload.importMode) === 'preview'
+              this.aiGenProgress.totalSkipped = skippedCount
+              if (data.planId) {
+                this.aiPlanId = data.planId
               }
-            }
-          } else if (event === 'error') {
-            this.$message.error(data.message || '生成失败')
-            this.resetAiGenerateState()
-            setTimeout(() => {
-              this.aiGenProgress.visible = false
-            }, 3000)
-          } else if (event === 'import_error') {
-            this.$message.error(`导入失败: ${data.error}`)
-          }
-        },
-        // onError: 网络错误
-        (err) => {
-          this.$message.error(`生成连接中断: ${err.message || '网络错误'}，正在查询后台生成状态`)
-          this.aiGenerateStream = null
-          this.checkAiGenerationStatus()
-          this.startAiGenerationStatusPolling()
-        },
-        // onDone: 流结束
-        () => {
-          this.checkAiGenerationStatus().then(() => {
-            if (!this.aiGenerateLoading) {
+              if (data.coverage) {
+                this.aiCoverage = data.coverage
+              }
+              if (isPreview) {
+                this.aiWizardStep = 2
+                if (!this.qaAutoRunning) {
+                  if (totalCases > 0 || importedCount > 0) {
+                    this.$message.success(`预览生成完成：${importedCount || totalCases} 条已进入候选，请勾选后确认导入`)
+                  } else if (data.resumeSkippedCount) {
+                    this.$message.success(data.message || `所有生成点已完成，已跳过${data.resumeSkippedCount}个生成点`)
+                  } else {
+                    this.$message.warning('AI未生成任何测试用例，请检查文档内容')
+                  }
+                }
+                const candidateCount = importedCount || totalCases || 0
+                this.reloadAiPlanDetail()
+                  .then(() => this.reportQaWorkflowEvent(
+                    'generate_done',
+                    `精写预览完成：${candidateCount} 条候选`,
+                    { candidateCount, totalCases, planId: this.aiPlanId }
+                  ))
+                  .then(() => settleOk(data))
+                  .catch(() => settleOk(data))
+                return
+              } else if (totalCases > 0 || importedCount > 0 || skippedCount > 0) {
+                this.$message.success(`生成完成，共返回${totalCases}条，已导入${importedCount}条，跳过重复${skippedCount}条`)
+                this.fetchAiCaseList()
+                this.fetchList()
+                this.fetchCaseMindmapData()
+                this.fetchAiDocList()
+              } else if (data.resumeSkippedCount) {
+                this.$message.success(data.message || `所有生成点已完成，已跳过${data.resumeSkippedCount}个生成点`)
+              } else {
+                this.$message.warning('AI未生成任何测试用例，请检查文档内容')
+              }
+              if (data.hasError || (data.failedChunks && data.failedChunks.length)) {
+                const errMsgs = (data.failedChunks || []).map(f => f.error || '未知错误').join('; ')
+                if (errMsgs) {
+                  this.$message.warning(`部分分段生成失败: ${errMsgs}`)
+                }
+              }
+              settleOk(data)
+            } else if (event === 'error') {
+              this.$message.error(data.message || '生成失败')
+              this.resetAiGenerateState()
               setTimeout(() => {
                 this.aiGenProgress.visible = false
               }, 3000)
+              settleErr(new Error(data.message || '生成失败'))
+            } else if (event === 'import_error') {
+              this.$message.error(`导入失败: ${data.error}`)
             }
-          })
-        }
-      )
+          },
+          // onError: 网络错误
+          (err) => {
+            this.$message.error(`生成连接中断: ${(err && err.message) || '网络错误'}，正在查询后台生成状态`)
+            this.aiGenerateStream = null
+            this.checkAiGenerationStatus()
+            this.startAiGenerationStatusPolling()
+            settleErr(err || new Error('生成连接中断'))
+          },
+          // onDone: 流结束
+          () => {
+            this.checkAiGenerationStatus().then(() => {
+              if (!this.aiGenerateLoading) {
+                setTimeout(() => {
+                  this.aiGenProgress.visible = false
+                }, 3000)
+              }
+              // 若未收到 done/error（异常断流），避免 Promise 挂死
+              if (!settled) {
+                settleOk({})
+              }
+            })
+          }
+        )
+      })
     },
     handleAiCaseSizeChange(size) {
       this.aiCasePageSize = size
@@ -2704,6 +3483,7 @@ export default {
     }
   },
   created() {
+    this.captureQaBootstrapFromRoute()
     this.loadProductOptions().then(() => {
       const routeProductId = this.$route.query.productId ? Number(this.$route.query.productId) : ''
       if (routeProductId) {
@@ -2729,8 +3509,13 @@ export default {
         this.fetchList()
         if (this.activeTab === 'ai-case-import') {
           this.fetchAiCaseList()
-          this.fetchAiDocList()
-          this.fetchAiSkillRuleOptions()
+          Promise.all([
+            this.fetchAiDocList({ autoSync: false }),
+            this.fetchAiSkillRuleOptions(),
+            this.restoreLatestAiPlan()
+          ]).finally(() => {
+            this.applyQaBootstrapAndMaybeAutoRun()
+          })
         }
         this.checkAiGenerationStatus()
       }
@@ -2909,6 +3694,134 @@ export default {
   margin-top: 4px;
 }
 
+.ai-wizard-bar {
+  margin: 0 0 14px;
+  padding: 12px 12px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.ai-wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ai-outline-panel {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+.ai-outline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #303133;
+}
+.ai-coverage-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #409eff;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #303133;
+}
+.ai-coverage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #303133;
+}
+.ai-coverage-mark {
+  display: inline-block;
+  padding: 0 8px;
+  line-height: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #409eff;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 2px;
+}
+.ai-coverage-gap {
+  line-height: 1.7;
+  color: #606266;
+}
+.ai-gap-item {
+  display: inline-block;
+  margin-right: 8px;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  background: #f5f7fa;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  color: #303133;
+}
+
+.ai-quality-panel {
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.28);
+}
+.ai-quality-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ai-quality-title {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+.ai-quality-sub {
+  flex: 1;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.ai-quality-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ai-quality-metric {
+  min-width: 88px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.7);
+  text-align: center;
+}
+.ai-quality-metric-val {
+  font-size: 18px;
+  font-weight: 600;
+  color: #7dd3fc;
+}
+.ai-quality-metric-label {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.ai-quality-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+.ai-neardup-tip {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #fbbf24;
+}
 .ai-case-import-tip {
   margin: 0 0 12px;
   padding: 10px 12px;
@@ -3307,6 +4220,25 @@ export default {
 
 body.theme-light .ai-case-import-tip {
   color: #475569;
+}
+body.theme-light .ai-quality-panel {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+body.theme-light .ai-quality-title {
+  color: #0f172a;
+}
+body.theme-light .ai-quality-metric {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+body.theme-light .ai-quality-metric-val {
+  color: #0369a1;
+}
+body.theme-light .ai-quality-sub,
+body.theme-light .ai-quality-note,
+body.theme-light .ai-quality-metric-label {
+  color: #64748b;
 }
 
 body.theme-light .case-export-progress-title {

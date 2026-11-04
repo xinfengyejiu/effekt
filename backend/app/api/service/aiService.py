@@ -246,31 +246,302 @@ class AIService:
             return [], f'AI生成失败: {str(e)}'
 
     @staticmethod
-    def generate_test_cases_streaming(document_content, template=None, session=None, session_factory=None, document_id=None, user_id=None, generation_id=None, document_ids=None, resume_mode='resume'):
+    def generate_requirement_outline(document_content, template=None, user_id=None):
+        """阶段0：从需求文档生成可测试模块树 + 测点清单（不含完整步骤）。"""
+        template = template or {}
+        content = (document_content or '').strip()
+        if not content:
+            return {}, '文档内容为空'
+        max_chars = 24000
+        if len(content) > max_chars:
+            content = content[:max_chars] + '\n\n...(文档过长，已截断用于大纲生成)'
+        generation_context = AIService._build_generation_context(template)
+        system_prompt = (
+            '你是测试需求分析助手。必须只输出可解析的 JSON 对象，'
+            '不要输出 Markdown、解释或代码围栏。testPoints 至少 5 条，每条必须有 title。'
+        )
+        prompt = u'''
+请阅读需求文档，只输出「可测试大纲」，不要写完整测试步骤。最终只输出 JSON。
+
+{generation_context}
+
+<requirement-document>
+{document_content}
+</requirement-document>
+
+硬性要求：
+1. 排除文档说明、目的、资料来源、产品定位、用户角色说明、版本规划、待完善事项、风险注意事项、附录等元信息章节（可作上下文，不进测点）。
+2. modules：按 PRD 编号/标题推断一级到四级模块路径，格式如 "客户端/多语言"。
+3. testPoints：5～40 条原子可测场景；每条必须可单独写成用例；禁止返回空数组。
+4. 每条 testPoint 含：id(tp1起)、modulePath、title、priority(0-3)、reason、selected(true)；title 必填。
+5. 覆盖正常、异常、边界、权限/状态（文档支持时）；不要编造文档未提及的业务行为。
+6. 字段名必须使用英文驼峰：modules / testPoints / modulePath。
+
+输出 JSON：
+{{"modules":[{{"path":"一级/二级","title":"二级"}}],"testPoints":[{{"id":"tp1","modulePath":"一级/二级","title":"测点标题","priority":1,"reason":"依据","selected":true}}]}}
+'''.format(generation_context=generation_context, document_content=content).strip()
+        parsed, err = AIService.request_json(
+            prompt,
+            error_prefix='生成需求大纲',
+            read_timeout=180,
+            max_tokens=8192,
+            temperature=0.1,
+            system_prompt=system_prompt,
+            user_id=user_id,
+        )
+        if err:
+            return {}, err
+        outline = AIService._normalize_outline(parsed)
+        if outline.get('testPoints'):
+            return outline, ''
+
+        logger.warning(
+            '生成需求大纲测点为空，准备重试。parsed_keys=%s preview=%s',
+            list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__,
+            str(parsed)[:800],
+        )
+        retry_prompt = (
+            prompt
+            + '\n\n【重试】上一次 testPoints 为空或字段无法识别。'
+            + '请基于文档中的功能模块，直接给出至少 8 条可测点；'
+            + '必须使用 testPoints 数组，每项必须含 title 字符串。'
+        )
+        parsed, err = AIService.request_json(
+            retry_prompt,
+            error_prefix='生成需求大纲',
+            read_timeout=180,
+            max_tokens=8192,
+            temperature=0.2,
+            system_prompt=system_prompt,
+            user_id=user_id,
+        )
+        if err:
+            return {}, err
+        outline = AIService._normalize_outline(parsed)
+        if not outline.get('testPoints'):
+            logger.error(
+                '生成需求大纲重试后仍无测点。parsed_keys=%s preview=%s',
+                list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__,
+                str(parsed)[:1200],
+            )
+            return {}, '模型未产出有效测点，请重试或检查文档内容是否为完整 PRD'
+        return outline, ''
+
+    @staticmethod
+    def _normalize_outline(parsed):
+        data = parsed if isinstance(parsed, dict) else {}
+        # 兼容模型把结果再包一层
+        for wrap_key in ('data', 'result', 'outline', '大纲'):
+            nested = data.get(wrap_key)
+            if isinstance(nested, dict) and (
+                nested.get('testPoints')
+                or nested.get('test_points')
+                or nested.get('points')
+                or nested.get('测点')
+            ):
+                data = nested
+                break
+        modules = (
+            data.get('modules')
+            or data.get('moduleList')
+            or data.get('module_list')
+            or data.get('模块')
+            or []
+        )
+        points = (
+            data.get('testPoints')
+            or data.get('test_points')
+            or data.get('points')
+            or data.get('testcases')
+            or data.get('testCases')
+            or data.get('测点')
+            or data.get('测试点')
+            or []
+        )
+        if isinstance(points, dict):
+            points = list(points.values())
+        normalized_modules = []
+        for item in modules:
+            if isinstance(item, str):
+                path = item.strip()
+                if path:
+                    normalized_modules.append({'path': path, 'title': path.split('/')[-1]})
+                continue
+            if not isinstance(item, dict):
+                continue
+            path = (
+                item.get('path')
+                or item.get('modulePath')
+                or item.get('module_path')
+                or item.get('name')
+                or item.get('title')
+                or ''
+            )
+            path = str(path).strip()
+            title = (item.get('title') or item.get('name') or (path.split('/')[-1] if path else '') or '').strip()
+            if path:
+                normalized_modules.append({'path': path, 'title': title or path})
+        normalized_points = []
+        for index, item in enumerate(points, 1):
+            if isinstance(item, str):
+                title = item.strip()
+                if not title:
+                    continue
+                normalized_points.append({
+                    'id': 'tp{0}'.format(index),
+                    'modulePath': '',
+                    'title': title,
+                    'priority': 2,
+                    'reason': '',
+                    'selected': True,
+                })
+                continue
+            if not isinstance(item, dict):
+                continue
+            title = (
+                item.get('title')
+                or item.get('name')
+                or item.get('point')
+                or item.get('场景')
+                or item.get('测点')
+                or item.get('测试点')
+                or ''
+            )
+            title = str(title).strip()
+            if not title:
+                continue
+            module_path = (
+                item.get('modulePath')
+                or item.get('module_path')
+                or item.get('module')
+                or item.get('path')
+                or item.get('模块')
+                or ''
+            )
+            module_path = str(module_path).strip()
+            point_id = str(item.get('id') or item.get('key') or 'tp{0}'.format(index)).strip() or 'tp{0}'.format(index)
+            priority = item.get('priority')
+            try:
+                priority = int(priority)
+            except (TypeError, ValueError):
+                priority = 2
+            if priority not in (0, 1, 2, 3):
+                priority = 2
+            selected = item.get('selected')
+            if selected is None:
+                selected = True
+            normalized_points.append({
+                'id': point_id,
+                'modulePath': module_path,
+                'title': title,
+                'priority': priority,
+                'reason': str(item.get('reason') or item.get('basis') or item.get('依据') or '').strip(),
+                'selected': bool(selected),
+            })
+        return {
+            'modules': normalized_modules,
+            'testPoints': normalized_points,
+            'summary': {
+                'moduleCount': len(normalized_modules),
+                'testPointCount': len(normalized_points),
+            }
+        }
+
+    @staticmethod
+    def _build_chunks_from_test_points(document_content, test_points):
+        """将已确认测点转为生成任务分段：测点标题 + 文档上下文。"""
+        content = (document_content or '').strip()
+        # 给每个测点附带有限上下文，避免整篇重复进每个 agent
+        context = content
+        max_ctx = 12000
+        if len(context) > max_ctx:
+            context = context[:max_ctx] + '\n\n...(上下文已截断)'
+        chunks = []
+        for index, point in enumerate(test_points or [], 1):
+            if not isinstance(point, dict):
+                continue
+            if point.get('selected') is False:
+                continue
+            title = (point.get('title') or '测点{0}'.format(index)).strip()
+            module_path = (point.get('modulePath') or point.get('module_path') or '').strip()
+            point_id = str(point.get('id') or 'tp{0}'.format(index))
+            reason = (point.get('reason') or '').strip()
+            chunk_title = u'{0} / {1}'.format(module_path, title) if module_path else title
+            chunk_content = u'''请只针对以下测点设计测试用例（可 1～3 条原子用例），不要扩展到其他未列出的功能。
+
+测点ID: {point_id}
+模块路径: {module_path}
+测点标题: {title}
+测点依据: {reason}
+建议 module_name 使用: {module_path}
+
+<requirement-context>
+{context}
+</requirement-context>
+'''.format(
+                point_id=point_id,
+                module_path=module_path or '未分类',
+                title=title,
+                reason=reason or title,
+                context=context,
+            )
+            chunks.append({
+                'title': chunk_title[:120],
+                'content': chunk_content,
+                'testPointId': point_id,
+            })
+        return chunks
+
+    @staticmethod
+    def generate_test_cases_streaming(document_content, template=None, session=None, session_factory=None, document_id=None, user_id=None, generation_id=None, document_ids=None, resume_mode='resume', import_mode='auto', plan_id=None, test_points=None):
         """
         流式生成测试用例。主管线程按 Skill/文档分段拆任务，多个子 agent 并发生成；任一子 agent 完成后立即入库并返回进度。
+        import_mode=preview 时写入生成计划候选，不直接入库。
+        传入 test_points 时按测点拆任务（两阶段精写）。
         """
         try:
             from openai import OpenAI
             from config.ai_config import AIConfig
             from app.api.service.documentSourceService import DocumentSourceService
+            from app.api.service.caseGenerationPlanService import CaseGenerationPlanService
             import httpx
 
-            api_key = AIConfig.get_api_key()
-            api_base = AIConfig.get_api_base()
-            model = AIConfig.get_model()
-            provider = AIConfig.MODEL_PROVIDER
-            key_source = AIConfig.get_api_key_source()
+            # 优先个人中心 BYOK；未配置时回退系统 .env
+            model_setting = AIService.resolve_model_setting({}, user_id=user_id)
+            api_key = (
+                model_setting.get('apiKey')
+                or model_setting.get('api_key')
+                or AIConfig.get_api_key()
+            )
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            model = model_setting.get('model') or AIConfig.get_model()
+            provider = model_setting.get('provider') or AIConfig.MODEL_PROVIDER
+            if model_setting.get('apiKey') or model_setting.get('api_key'):
+                key_source = 'user_preference'
+            else:
+                key_source = AIConfig.get_api_key_source()
             if not api_key or api_key == '请替换为你的Meteor API Key':
-                yield {"type": "error", "message": "未配置API密钥，请在.env中配置METEOR_API_KEY"}
+                yield {"type": "error", "message": "未配置API密钥，请在个人中心配置 Key，或在.env中配置METEOR_API_KEY"}
                 return
 
-            is_plan_key = '/plan/' in api_base
+            is_plan_key = '/plan/' in (api_base or '')
             request_base = AIService._normalize_plan_api_base(api_base) if is_plan_key else AIService._normalize_api_base(api_base)
-            logger.info(f'AI配置: provider={provider}, base={request_base}, model={model}, key_source={key_source}, key_prefix={api_key[:8]}, plan_key={is_plan_key}')
+            logger.info(
+                'AI配置: provider=%s, base=%s, model=%s, key_source=%s, key_prefix=%s, plan_key=%s, user_id=%s',
+                provider, request_base, model, key_source, api_key[:8], is_plan_key, user_id
+            )
+
+            import_mode = (import_mode or 'auto').lower()
+            if import_mode not in ('auto', 'preview'):
+                import_mode = 'auto'
+            if plan_id:
+                CaseGenerationPlanService.set_generation_meta(session_factory, plan_id, generation_id=generation_id, status='generating')
 
             skill_content = AIService._load_skill_content()
-            chunks = AIService._split_test_case_generation_content(document_content)
+            if test_points:
+                chunks = AIService._build_chunks_from_test_points(document_content, test_points)
+            else:
+                chunks = AIService._split_test_case_generation_content(document_content)
             tasks = AIService._build_generation_agent_tasks(chunks, template)
             if not tasks:
                 yield {"type": "error", "message": "没有可生成的测试点任务"}
@@ -427,6 +698,12 @@ class AIService:
                     parsed_result = json.loads(AIService._extract_json_text(result))
                     chunk_cases = AIService._normalize_cases(parsed_result, task['template'], task_title)
                     logger.info(f"{task['agent_name']}解析完成: task_id={task_id}, cases={len(chunk_cases)}")
+                    for case_item in chunk_cases:
+                        if task.get('testPointId') and not case_item.get('testPointId'):
+                            case_item['testPointId'] = task.get('testPointId')
+                        if task.get('testPointId') and not case_item.get('module_name'):
+                            # 尽量用测点模块路径，后续入库可建树
+                            pass
                     event_queue.put({
                         "type": "agent_log",
                         "level": "info",
@@ -434,12 +711,21 @@ class AIService:
                         "totalChunks": task_count,
                         "chunkTitle": task_title,
                         "agentName": task['agent_name'],
-                        "message": f"测试点[{run_index}/{task_count}] {task_title}：模型生成{len(chunk_cases)}条用例，开始入库"
+                        "message": f"测试点[{run_index}/{task_count}] {task_title}：模型生成{len(chunk_cases)}条用例，开始{'写入预览候选' if import_mode == 'preview' else '入库'}"
                     })
                     chunk_saved = 0
                     chunk_skipped = 0
                     chunk_save_error = ''
-                    if (session or session_factory) and document_id and user_id and chunk_cases:
+                    if import_mode == 'preview' and plan_id and session_factory and chunk_cases:
+                        try:
+                            CaseGenerationPlanService.append_candidates(
+                                session_factory, plan_id, chunk_cases, test_point_id=task.get('testPointId') or ''
+                            )
+                            chunk_saved = len(chunk_cases)
+                        except Exception as save_err:
+                            chunk_save_error = str(save_err)
+                            logger.error(f'agent任务{task_id}写入预览候选失败: {str(save_err)}')
+                    elif (session or session_factory) and document_id and user_id and chunk_cases:
                         chunk_session_owner = None
                         chunk_session = session
                         try:
@@ -469,10 +755,11 @@ class AIService:
                                 chunk_session_owner.close()
                     log_level = "warning" if chunk_save_error else "info"
                     if chunk_save_error:
-                        log_message = f"{task['agent_name']}入库失败：{chunk_save_error}"
+                        log_message = f"{task['agent_name']}{'预览' if import_mode == 'preview' else '入库'}失败：{chunk_save_error}"
                     else:
                         skip_text = f"，跳过重复{chunk_skipped}条" if chunk_skipped else ""
-                        log_message = f"测试点[{run_index}/{task_count}] {task_title}：生成{len(chunk_cases)}条用例，已入库{chunk_saved}条{skip_text}"
+                        action_text = '已写入预览' if import_mode == 'preview' else '已入库'
+                        log_message = f"测试点[{run_index}/{task_count}] {task_title}：生成{len(chunk_cases)}条用例，{action_text}{chunk_saved}条{skip_text}"
                     if chunk_save_error:
                         if checkpoint_scope and session_factory:
                             AIService._upsert_generation_checkpoint(
@@ -652,6 +939,22 @@ class AIService:
                 shutdown_executor(executor)
 
             logger.info(f'AI并发生成完成, 共{len(all_cases)}条用例, 已入库{total_imported}条, 跳过重复{total_skipped}条, {len(failed_chunks)}个任务失败')
+            coverage = {}
+            if plan_id and session_factory:
+                try:
+                    finish_status = 'preview' if import_mode == 'preview' else 'imported'
+                    CaseGenerationPlanService.set_generation_meta(
+                        session_factory, plan_id, generation_id=generation_id, status=finish_status
+                    )
+                    cover_session = session_factory()
+                    try:
+                        _, _ = CaseGenerationPlanService.refresh_coverage(cover_session, plan_id)
+                        plan_row = CaseGenerationPlanService.get_by_id(cover_session, plan_id)
+                        coverage = (plan_row.coverage if plan_row else {}) or {}
+                    finally:
+                        cover_session.close()
+                except Exception as cover_err:
+                    logger.warning('刷新覆盖报告失败: %s', cover_err)
             if failed_chunks and not all_cases and total_imported == 0:
                 error_summary = '; '.join(item.get('error') or '未知错误' for item in failed_chunks[:3])
                 yield {"type": "error", "message": f"AI生成失败：{error_summary}", "failedChunks": failed_chunks}
@@ -663,7 +966,10 @@ class AIService:
                 "totalImported": total_imported,
                 "totalSkipped": total_skipped,
                 "failedChunks": failed_chunks,
-                "chunkImportResults": chunk_import_results
+                "chunkImportResults": chunk_import_results,
+                "planId": plan_id,
+                "importMode": import_mode,
+                "coverage": coverage,
             }
         except Exception as e:
             logger.error(f'AI流式生成测试用例失败: {str(e)}')
@@ -700,7 +1006,8 @@ class AIService:
                     'agent_name': agent_name,
                     'task_key': task_key,
                     'skill_id': skill.get('id') if skill else None,
-                    'skill_name': skill.get('name') if skill else ''
+                    'skill_name': skill.get('name') if skill else '',
+                    'testPointId': chunk.get('testPointId') or '',
                 })
                 task_index += 1
         return tasks
@@ -1429,35 +1736,82 @@ class AIService:
 '''.strip()
 
     @staticmethod
-    def request_json(prompt, error_prefix='AI生成JSON', read_timeout=None, max_retries=None, max_tokens=None, temperature=None, system_prompt=None):
+    def request_json(prompt, error_prefix='AI生成JSON', read_timeout=None, max_retries=None, max_tokens=None, temperature=None, system_prompt=None, model_setting=None, user_id=None):
         try:
             from openai import OpenAI
             from config.ai_config import AIConfig
             import httpx
 
-            api_key = AIConfig.get_api_key()
-            api_base = AIConfig.get_api_base()
-            model = AIConfig.get_model()
-            provider = AIConfig.MODEL_PROVIDER
+            # 优先个人中心 BYOK；未配置时回退系统 .env（与代码PRD一致）
+            model_setting = AIService.resolve_model_setting(model_setting, user_id=user_id)
+            api_key = (
+                model_setting.get('apiKey')
+                or model_setting.get('api_key')
+                or AIConfig.get_api_key()
+            )
+            api_base = model_setting.get('apiBase') or model_setting.get('api_base') or AIConfig.get_api_base()
+            model = model_setting.get('model') or AIConfig.get_model()
+            provider = model_setting.get('provider') or AIConfig.MODEL_PROVIDER
+            if model_setting.get('temperature') is not None and temperature is None:
+                try:
+                    temperature = float(model_setting.get('temperature'))
+                except (TypeError, ValueError):
+                    pass
+            if max_tokens is None and (model_setting.get('maxTokens') or model_setting.get('max_tokens')):
+                try:
+                    max_tokens = int(model_setting.get('maxTokens') or model_setting.get('max_tokens'))
+                except (TypeError, ValueError):
+                    pass
+            if model_setting.get('apiKey') or model_setting.get('api_key'):
+                key_source = 'user_preference'
+            else:
+                key_source = AIConfig.get_api_key_source()
             if not api_key or api_key == '请替换为你的Meteor API Key':
-                return {}, '未配置API密钥，请在.env中配置METEOR_API_KEY'
-            is_plan_key = '/plan/' in api_base
+                return {}, '未配置API密钥，请在个人中心配置 Key，或在.env中配置METEOR_API_KEY'
+            is_plan_key = '/plan/' in (api_base or '')
             request_base = AIService._normalize_plan_api_base(api_base) if is_plan_key else AIService._normalize_api_base(api_base)
+            logger.info(
+                '%s AI配置: provider=%s, base=%s, model=%s, key_source=%s, key_prefix=%s, plan_key=%s, user_id=%s',
+                error_prefix, provider, request_base, model, key_source, api_key[:8], is_plan_key, user_id
+            )
             current_read_timeout = read_timeout or AIConfig.READ_TIMEOUT
             timeout = httpx.Timeout(connect=AIConfig.CONNECT_TIMEOUT, read=current_read_timeout, write=current_read_timeout, pool=AIConfig.CONNECT_TIMEOUT)
+            effective_system = system_prompt or '你是一个专业的测试知识资产生成助手。必须最终只输出可解析JSON。'
             result = AIService._request_model(
                 OpenAI, AIConfig, api_key, request_base, model, is_plan_key, prompt, timeout, httpx,
                 max_retries=max_retries,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                system_prompt=system_prompt
+                system_prompt=effective_system
             )
-            parsed_result = json.loads(AIService._extract_json_text(result))
+            parsed_result, parse_err = AIService._loads_model_json(result)
+            if parse_err:
+                logger.warning(
+                    '%s JSON解析失败，准备严格重试。raw_len=%s raw_preview=%s',
+                    error_prefix, len(result or ''), (result or '')[:800]
+                )
+                retry_prompt = (
+                    (prompt or '').rstrip()
+                    + '\n\n【重试约束】上一次输出无法解析为 JSON。请只输出一个完整 JSON，'
+                    + '不要 Markdown、不要代码围栏、不要解释文字。'
+                )
+                result = AIService._request_model(
+                    OpenAI, AIConfig, api_key, request_base, model, is_plan_key, retry_prompt, timeout, httpx,
+                    max_retries=1,
+                    max_tokens=max_tokens,
+                    temperature=0.0 if temperature is None else min(float(temperature), 0.1),
+                    system_prompt='只输出可解析 JSON。禁止 Markdown、代码围栏与额外说明。'
+                )
+                parsed_result, parse_err = AIService._loads_model_json(result)
+            if parse_err:
+                logger.error(
+                    '%s 仍不是合法 JSON。raw_len=%s raw_preview=%s',
+                    error_prefix, len(result or ''), (result or '')[:1200]
+                )
+                return {}, f'{error_prefix}不是合法 JSON'
             if not isinstance(parsed_result, (dict, list)):
                 return {}, f'{error_prefix}格式错误'
             return parsed_result, ''
-        except json.JSONDecodeError:
-            return {}, f'{error_prefix}不是合法 JSON'
         except Exception as e:
             logger.error(f'{error_prefix}失败: {str(e)}')
             logger.error(traceback.format_exc())
@@ -1513,7 +1867,7 @@ class AIService:
                 max_tokens=max_tokens,
                 temperature=temperature
             )
-            return response.choices[0].message.content
+            return AIService._extract_chat_message_text(response)
 
     @staticmethod
     def _get_request_semaphore(AIConfig):
@@ -1584,17 +1938,147 @@ class AIService:
         return json.dumps(data, ensure_ascii=False)
 
     @staticmethod
+    def _extract_chat_message_text(response):
+        """从 chat.completions 响应提取文本；兼容 content 为空但带 reasoning_content 的模型。"""
+        try:
+            choice = response.choices[0] if response and getattr(response, 'choices', None) else None
+            message = getattr(choice, 'message', None) if choice else None
+            if message is None:
+                return ''
+            content = getattr(message, 'content', None)
+            if isinstance(content, list):
+                texts = []
+                for part in content:
+                    if isinstance(part, dict) and part.get('text'):
+                        texts.append(part.get('text'))
+                    elif isinstance(part, str):
+                        texts.append(part)
+                    else:
+                        text_val = getattr(part, 'text', None)
+                        if text_val:
+                            texts.append(text_val)
+                content = ''.join(texts)
+            if content is None or (isinstance(content, str) and not content.strip()):
+                # DeepSeek 等推理模型偶发只回 reasoning_content
+                for attr in ('reasoning_content', 'reasoning', 'refusal'):
+                    alt = getattr(message, attr, None)
+                    if isinstance(alt, str) and alt.strip():
+                        content = alt
+                        break
+            return content or ''
+        except Exception as exc:
+            logger.warning('extract chat message text failed: %s', exc)
+            return ''
+
+    @staticmethod
     def _extract_json_text(result):
-        text = result.strip()
-        fence_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+        text = (result or '').strip()
+        if not text:
+            return text
+        fence_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text, flags=re.IGNORECASE)
         if fence_match:
             text = fence_match.group(1).strip()
+        balanced = AIService._extract_balanced_json(text)
+        if balanced:
+            return balanced
         if text.startswith('{') or text.startswith('['):
             return text
         json_match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
         if json_match:
             return json_match.group(1).strip()
         return text
+
+    @staticmethod
+    def _extract_balanced_json(text):
+        """从混合文本中提取第一个括号平衡的 JSON 对象/数组。"""
+        if not text:
+            return ''
+        for start_char, end_char in (('{', '}'), ('[', ']')):
+            start = text.find(start_char)
+            while start >= 0:
+                depth = 0
+                in_str = False
+                escape = False
+                for index in range(start, len(text)):
+                    ch = text[index]
+                    if in_str:
+                        if escape:
+                            escape = False
+                        elif ch == '\\':
+                            escape = True
+                        elif ch == '"':
+                            in_str = False
+                        continue
+                    if ch == '"':
+                        in_str = True
+                    elif ch == start_char:
+                        depth += 1
+                    elif ch == end_char:
+                        depth -= 1
+                        if depth == 0:
+                            return text[start:index + 1].strip()
+                start = text.find(start_char, start + 1)
+        return ''
+
+    @staticmethod
+    def _repair_truncated_json(text):
+        """尽量修复被截断的 JSON（补全引号/括号，去掉尾逗号）。"""
+        if not text:
+            return text
+        stack = []
+        in_str = False
+        escape = False
+        for ch in text:
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == '\\':
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch in '{[':
+                stack.append('}' if ch == '{' else ']')
+            elif ch in '}]':
+                if stack and stack[-1] == ch:
+                    stack.pop()
+        repaired = text.rstrip()
+        if in_str:
+            repaired += '"'
+        repaired = re.sub(r',\s*$', '', repaired)
+        while stack:
+            repaired += stack.pop()
+        return repaired
+
+    @staticmethod
+    def _loads_model_json(result):
+        """解析模型输出为 JSON；失败时尝试截断修复。返回 (obj, err)。"""
+        raw = result or ''
+        candidates = []
+        extracted = AIService._extract_json_text(raw)
+        if extracted:
+            candidates.append(extracted)
+            repaired = AIService._repair_truncated_json(extracted)
+            if repaired and repaired != extracted:
+                candidates.append(repaired)
+        balanced = AIService._extract_balanced_json(raw)
+        if balanced and balanced not in candidates:
+            candidates.append(balanced)
+            repaired = AIService._repair_truncated_json(balanced)
+            if repaired and repaired not in candidates:
+                candidates.append(repaired)
+        last_err = 'empty'
+        for candidate in candidates:
+            try:
+                return json.loads(candidate), ''
+            except json.JSONDecodeError as exc:
+                last_err = str(exc)
+                continue
+        if not (raw or '').strip():
+            return None, '模型返回为空'
+        return None, last_err or '不是合法 JSON'
 
     @staticmethod
     def generate_skill_content(req_data):

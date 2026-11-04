@@ -25,6 +25,101 @@ class DocumentSourceService:
     DOCUMENT_STATUS_PARSED = 1
     DOCUMENT_STATUS_GENERATED = 2
     
+    CODE_PRD_SOURCE_PREFIX = 'code-prd://project/'
+
+    @staticmethod
+    def code_prd_source_key(project_id):
+        return '{0}{1}'.format(DocumentSourceService.CODE_PRD_SOURCE_PREFIX, int(project_id))
+
+    @staticmethod
+    def sync_from_latest_code_prd(session, project_id, user_id=None, record_id=None):
+        """把项目最新成功的「代码转PRD」同步为可生成用例的文档源。"""
+        from app.api.model.projectCodePrdModel import ProjectCodePrdRecord
+        from app.api.model.projectModel import Project
+
+        if not project_id:
+            return {}, 'projectId 为必传参数'
+        project = session.query(Project).filter(Project.id == int(project_id), Project.is_delete == 0).first()
+        if not project:
+            return {}, '项目不存在'
+        product_id = getattr(project, 'product_id', None)
+        if not product_id:
+            return {}, '项目未绑定产品'
+
+        query = session.query(ProjectCodePrdRecord).filter(
+            ProjectCodePrdRecord.project_id == int(project_id),
+            ProjectCodePrdRecord.is_delete == 0,
+            ProjectCodePrdRecord.status == 2,
+        )
+        if record_id not in (None, ''):
+            query = query.filter(ProjectCodePrdRecord.id == int(record_id))
+        record = query.order_by(ProjectCodePrdRecord.created_time.desc(), ProjectCodePrdRecord.id.desc()).first()
+        if not record:
+            return {}, '当前项目暂无成功的代码转PRD记录，请先在项目设置生成PRD'
+        markdown = (record.prd_markdown or '').strip()
+        if not markdown:
+            return {}, '最新代码转PRD记录没有可用正文'
+        try:
+            from app.api.service.projectCodePrdService import ProjectCodePrdService
+            markdown = ProjectCodePrdService._sanitize_prd_markdown(markdown)
+        except Exception:
+            pass
+        if not markdown.strip():
+            return {}, '最新代码转PRD记录正文无效（疑似推理草稿），请重新生成PRD'
+
+        title = (record.title or '代码转PRD').strip()
+        source = DocumentSourceService.code_prd_source_key(project_id)
+        # 文件名便于前端展示；真实内容在 content
+        display_source = '{0}/{1}.md'.format(source.rstrip('/'), title.replace('/', '_'))
+        content = u'# {0}\n\n> 来源：代码转PRD recordId={1} branch={2}\n\n{3}'.format(
+            title, record.id, record.branch or '', markdown
+        )
+
+        existing = DocumentSourceDao.get_latest_version(session, product_id, int(project_id), display_source)
+        if not existing:
+            # 兼容旧 key：仅 project 前缀
+            existing = session.query(DocumentSource).filter(
+                DocumentSource.project_id == int(project_id),
+                DocumentSource.is_delete == 0,
+                DocumentSource.source.like(DocumentSourceService.CODE_PRD_SOURCE_PREFIX + str(int(project_id)) + '%')
+            ).order_by(DocumentSource.updated_time.desc()).first()
+
+        if existing:
+            DocumentSourceDao.update_by_id(session, existing.id, {
+                'source': display_source,
+                'content': content,
+                'type': DocumentSourceService.DOCUMENT_TYPE_MARKDOWN,
+                'status': DocumentSourceService.DOCUMENT_STATUS_PARSED,
+                'ai_model': 'code-prd',
+            })
+            session.flush()
+            doc_id = existing.id
+        else:
+            doc_id, err = DocumentSourceService.create(session, {
+                'productId': product_id,
+                'projectId': int(project_id),
+                'type': DocumentSourceService.DOCUMENT_TYPE_MARKDOWN,
+                'source': display_source,
+                'content': content,
+                'createdBy': user_id or getattr(record, 'created_by', None),
+            })
+            if err:
+                return {}, err
+            DocumentSourceDao.update_by_id(session, doc_id, {
+                'status': DocumentSourceService.DOCUMENT_STATUS_PARSED,
+                'ai_model': 'code-prd',
+            })
+        session.flush()
+        doc = DocumentSourceDao.get_by_id(session, doc_id)
+        return {
+            'documentId': doc_id,
+            'recordId': record.id,
+            'title': title,
+            'branch': record.branch,
+            'source': display_source,
+            'document': doc,
+        }, ''
+
     @staticmethod
     def create(session, data):
         product_id = data.get('productId') or data.get('product_id')
@@ -563,6 +658,15 @@ class DocumentSourceService:
                     success_count += 1
                     batch_fingerprints.add(fingerprint)
                     last_error = ''
+                    try:
+                        from app.api.service.aiCaseQualityService import AiCaseQualityService
+                        AiCaseQualityService.record_origin(session, case, meta={
+                            'plan_id': case_data.get('plan_id') or case_data.get('planId'),
+                            'candidate_id': case_data.get('candidateId') or case_data.get('candidate_id'),
+                            'generation_id': case_data.get('generationId') or case_data.get('generation_id'),
+                        })
+                    except Exception:
+                        pass
                     break
                 except Exception as e:
                     savepoint.rollback()

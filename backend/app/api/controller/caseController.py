@@ -259,7 +259,19 @@ class CaseController(BaseCrudController):
             if isinstance(steps_value, (list, dict)):
                 steps_value = ''
             update_info['steps'] = steps_value
-        return CaseService.update_by_id(self.session, TestCase, case_id, update_info)
+        update_id, err_msg = CaseService.update_by_id(self.session, TestCase, case_id, update_info)
+        if not err_msg:
+            try:
+                from flask import g
+                from app.api.service.aiCaseQualityService import AiCaseQualityService
+                user_id = getattr(g, 'current_user_id', None)
+                AiCaseQualityService.evaluate_rewrite(self.session, case_id, user_id=user_id)
+                # status=2 废弃
+                if update_info.get('status') is not None and int(update_info.get('status')) == 2:
+                    AiCaseQualityService.mark_abandoned(self.session, case_id)
+            except Exception:
+                pass
+        return update_id, err_msg
 
     def case_copy(self):
         """复制用例：基于源用例生成新用例（新编号、新创建人）。"""
@@ -291,6 +303,11 @@ class CaseController(BaseCrudController):
             TestCase.id.in_(case_ids),
             TestCase.is_delete == 0
         ).update({'is_delete': 1}, synchronize_session=False)
+        try:
+            from app.api.service.aiCaseQualityService import AiCaseQualityService
+            AiCaseQualityService.mark_abandoned(self.session, case_ids)
+        except Exception:
+            pass
         err = self.session.done(close=False)
         if err:
             return {}, f'删除失败！{err}'

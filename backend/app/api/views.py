@@ -2126,6 +2126,104 @@ def document_refresh():
         controller.close_session()
 
 
+@api.route('/document/sync-code-prd', methods=['POST'])
+@login_required
+@permission_required('document:create')
+def document_sync_code_prd():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_sync_code_prd()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/generate-outline', methods=['POST'])
+@login_required
+@permission_required('document:generate')
+def document_generate_outline():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_generate_outline()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/generation-plan/detail', methods=['GET'])
+@login_required
+@permission_required('document:generate')
+def document_generation_plan_detail():
+    controller = DocumentSourceController(request.args)
+    try:
+        ret, err_msg = controller.document_generation_plan_detail()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/generation-plan/latest', methods=['GET'])
+@login_required
+@permission_required('document:generate')
+def document_generation_plan_latest():
+    controller = DocumentSourceController(request.args)
+    try:
+        ret, err_msg = controller.document_generation_plan_latest()
+        if err_msg:
+            return ApiResponse.build_failure(40011, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret or {})
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/generation-plan/update', methods=['POST'])
+@login_required
+@permission_required('document:generate')
+def document_generation_plan_update():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_generation_plan_update()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/generation-plan/coverage', methods=['POST'])
+@login_required
+@permission_required('document:generate')
+def document_generation_plan_coverage():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_generation_plan_coverage()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
+@api.route('/document/generation-plan/import', methods=['POST'])
+@login_required
+@permission_required('document:import')
+def document_generation_plan_import():
+    controller = DocumentSourceController(request.get_json() or {})
+    try:
+        ret, err_msg = controller.document_generation_plan_import()
+        if err_msg:
+            return ApiResponse.build_failure(40009, msg=err_msg)
+        return ApiResponse.build_success(20000, data=ret)
+    finally:
+        controller.close_session()
+
+
 @api.route('/document/generate-cases', methods=['POST'])
 @login_required
 @permission_required('document:generate')
@@ -2145,7 +2243,8 @@ def document_generate_cases():
 @permission_required('document:generate')
 def document_generate_cases_streaming():
     controller = DocumentSourceController(request.get_json() or {})
-    return controller.document_generate_cases_streaming()
+    stream = controller.document_generate_cases_streaming()
+    return DocumentSourceController.wrap_sse_flask_response(stream)
 
 
 @api.route('/document/generation-status', methods=['GET'])

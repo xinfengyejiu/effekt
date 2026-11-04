@@ -194,6 +194,17 @@ class InspectionExecutionService(object):
                     }
                     InspectionDao.update_execution_item(db, exec_item_id, update_values)
                     db.commit()
+                    if exec_status in (3, 4):
+                        try:
+                            from app.api.service.failureAttributionService import FailureAttributionService
+                            from app.api.model.inspectionModel import InspectionExecutionItem
+                            item_row = db.query(InspectionExecutionItem).filter(
+                                InspectionExecutionItem.id == exec_item_id
+                            ).first()
+                            FailureAttributionService.classify_and_store_inspection_item(db, item_row)
+                            db.commit()
+                        except Exception:
+                            pass
 
                     if result['status'] == 'pass':
                         pass_count += 1

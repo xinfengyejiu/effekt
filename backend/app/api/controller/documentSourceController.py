@@ -4,13 +4,17 @@ import re
 import uuid
 import json as json_module
 from datetime import datetime
-from flask import current_app, g, Response, stream_with_context
+import logging
+from flask import current_app, g, has_app_context, Response, stream_with_context
 
 from .baseCrudController import BaseCrudController
 from ..model.documentSourceModel import DocumentSource
 from ..model.productModel import Product
 from ..model.projectModel import Project
 from ..service.documentSourceService import DocumentSourceService
+from ..service.caseGenerationPlanService import CaseGenerationPlanService
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentSourceController(BaseCrudController):
@@ -43,6 +47,27 @@ class DocumentSourceController(BaseCrudController):
     def document_list(self):
         items, total = DocumentSourceService.list(self.session, self.req_data)
         return {'list': self.serialize_list(items, ['is_delete']), 'total': total}
+
+    def document_sync_code_prd(self):
+        """同步项目最新成功的代码转PRD到文档源，供AI生成用例使用。"""
+        project_id = self._get(self.req_data, 'projectId', 'project_id')
+        record_id = self._get(self.req_data, 'recordId', 'record_id')
+        user_id = getattr(g, 'current_user_id', None) or self._get(self.req_data, 'userId', 'user_id')
+        if not project_id:
+            return {}, 'projectId 为必传参数'
+        result, err = DocumentSourceService.sync_from_latest_code_prd(
+            self.session, project_id, user_id=user_id, record_id=record_id
+        )
+        if err:
+            return {}, err
+        err_commit = self.session.done(close=False)
+        if err_commit:
+            return {}, '同步失败：{0}'.format(err_commit)
+        doc = result.pop('document', None)
+        payload = dict(result)
+        if doc is not None:
+            payload['document'] = self.serialize(doc, ['is_delete'])
+        return payload, ''
     
     def document_detail(self):
         document_id = self._get(self.req_data, 'documentId', 'id')
@@ -114,12 +139,11 @@ class DocumentSourceController(BaseCrudController):
         document_ids = self._get(self.req_data, 'documentIds', 'document_ids', default=[])
         generation_id = self._get(self.req_data, 'generationId', 'generation_id') or str(uuid.uuid4())
         resume_mode = self._get(self.req_data, 'resumeMode', 'resume_mode', default='resume')
+        plan_id = self._get(self.req_data, 'planId', 'plan_id')
+        raw_import_mode = self._get(self.req_data, 'importMode', 'import_mode')
 
         if document_id:
             document_ids = [document_id]
-
-        if not document_ids or not isinstance(document_ids, list) or len(document_ids) == 0:
-            return self._make_sse_error('documentId 或 documentIds 为必传参数')
 
         project_id = self._get(self.req_data, 'projectId', 'project_id')
         user_id = getattr(g, 'current_user_id', None) or self._get(self.req_data, 'userId', 'user_id')
@@ -141,6 +165,27 @@ class DocumentSourceController(BaseCrudController):
         if isinstance(template['tags'], str):
             template['tags'] = template['tags'].split(',')
 
+        import_mode = (raw_import_mode or 'auto').lower()
+        test_points = None
+        if plan_id:
+            plan = CaseGenerationPlanService.get_by_id(self.session, plan_id)
+            if not plan:
+                return self._make_sse_error('生成计划不存在')
+            if int(plan.project_id) != int(project_id):
+                return self._make_sse_error('生成计划与项目不匹配')
+            if not document_ids:
+                document_ids = list(plan.document_ids or [])
+            test_points = CaseGenerationPlanService.selected_test_points(plan)
+            if not test_points:
+                return self._make_sse_error('请先在大纲中勾选至少一个测点')
+            if raw_import_mode is None:
+                import_mode = (plan.import_mode or 'preview').lower()
+            if import_mode not in ('preview', 'auto'):
+                import_mode = 'preview'
+
+        if not document_ids or not isinstance(document_ids, list) or len(document_ids) == 0:
+            return self._make_sse_error('documentId 或 documentIds 为必传参数')
+
         clear_cancel_generation(generation_id)
         init_generation_status(generation_id, project_id=project_id, document_ids=document_ids)
 
@@ -157,7 +202,9 @@ class DocumentSourceController(BaseCrudController):
                     "message": "开始AI生成测试用例",
                     "generationId": generation_id,
                     "totalDocs": len(document_ids),
-                    "failedDocs": failed_docs
+                    "failedDocs": failed_docs,
+                    "planId": plan_id,
+                    "importMode": import_mode,
                 })
                 yield emit("preparing", {
                     "message": "正在解析文档并准备生成上下文",
@@ -217,9 +264,12 @@ class DocumentSourceController(BaseCrudController):
                 session_closed = True
 
                 yield emit("prepared", {
-                    "message": "文档解析完成，开始AI分段生成",
+                    "message": "文档解析完成，开始AI分段生成" + ("（按测点精写）" if test_points else ""),
                     "generationId": generation_id,
-                    "failedDocs": failed_docs
+                    "failedDocs": failed_docs,
+                    "planId": plan_id,
+                    "importMode": import_mode,
+                    "testPointCount": len(test_points or []),
                 })
 
                 all_cases = []
@@ -233,7 +283,10 @@ class DocumentSourceController(BaseCrudController):
                     user_id=user_id,
                     generation_id=generation_id,
                     document_ids=document_ids,
-                    resume_mode=resume_mode
+                    resume_mode=resume_mode,
+                    import_mode=import_mode,
+                    plan_id=plan_id,
+                    test_points=test_points,
                 ):
                     event_type = event.get("type")
 
@@ -355,7 +408,10 @@ class DocumentSourceController(BaseCrudController):
                             "failedChunks": event.get("failedChunks", []),
                             "resumeSkippedCount": event.get("resumeSkippedCount", 0),
                             "message": event.get("message", ""),
-                            "hasError": has_error
+                            "hasError": has_error,
+                            "planId": event.get("planId") or plan_id,
+                            "importMode": event.get("importMode") or import_mode,
+                            "coverage": event.get("coverage") or {},
                         })
 
 
@@ -365,29 +421,42 @@ class DocumentSourceController(BaseCrudController):
                             "failedChunks": event.get("failedChunks", [])
                         })
             except Exception as e:
-                current_app.logger.error(f'流式生成用例失败: {str(e)}')
+                if has_app_context():
+                    current_app.logger.error(f'流式生成用例失败: {str(e)}')
+                else:
+                    logger.error('流式生成用例失败: %s', e)
                 yield emit("error", {"message": f"生成用例失败：{str(e)}"})
             finally:
                 clear_cancel_generation(generation_id)
                 if not session_closed:
                     self.close_session()
 
-        headers = {
-            'Cache-Control': 'no-cache, no-transform',
-            'X-Accel-Buffering': 'no',
-            'Connection': 'keep-alive'
-        }
-        return Response(stream_with_context(generate()), mimetype='text/event-stream', headers=headers)
+        # 返回纯生成器，由 FastAPI StreamingResponse / Flask Response 各自包装
+        # （FastAPI 路由下没有 Flask request context，不能用 stream_with_context）
+        return generate()
 
     @staticmethod
     def _sse_event(event_type, data):
-        payload = json_module.dumps(data, ensure_ascii=False)
         return f"data: {json_module.dumps({'event': event_type, 'data': data}, ensure_ascii=False)}\n\n"
 
     @staticmethod
     def _make_sse_error(message):
         data = json_module.dumps({'event': 'error', 'data': {'message': message}}, ensure_ascii=False)
-        return Response(f"data: {data}\n\n", mimetype='text/event-stream')
+
+        def _one():
+            yield f"data: {data}\n\n"
+
+        return _one()
+
+    @staticmethod
+    def wrap_sse_flask_response(stream):
+        """Flask 蓝图入口包装 SSE 流。"""
+        headers = {
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive'
+        }
+        return Response(stream_with_context(stream), mimetype='text/event-stream', headers=headers)
 
     def document_generate_cases(self):
         # 支持单个文档ID或多个文档ID
@@ -590,3 +659,103 @@ class DocumentSourceController(BaseCrudController):
         except Exception as e:
             self.session.rollback()
             return None, f'文件上传失败：{str(e)}'
+
+    def document_generate_outline(self):
+        """阶段0：生成需求大纲（测点清单）。"""
+        document_id = self._get(self.req_data, 'documentId', 'id')
+        document_ids = self._get(self.req_data, 'documentIds', 'document_ids', default=[])
+        if document_id:
+            document_ids = [document_id]
+        if not document_ids:
+            return {}, 'documentId 或 documentIds 为必传参数'
+        project_id = self._get(self.req_data, 'projectId', 'project_id')
+        user_id = getattr(g, 'current_user_id', None) or self._get(self.req_data, 'userId', 'user_id')
+        if not project_id:
+            return {}, 'projectId 为必传参数'
+        if not user_id:
+            return {}, '未获取到当前登录用户'
+        template = {
+            'project_id': int(project_id),
+            'priority': int(self._get(self.req_data, 'priority', default=2)),
+            'case_type': int(self._get(self.req_data, 'caseType', 'case_type', default=1)),
+            'tags': self._get(self.req_data, 'tags', default=['AI生成']),
+            'skill_ids': self._get(self.req_data, 'skillIds', 'skill_ids', default=[]),
+            'rule_ids': self._get(self.req_data, 'ruleIds', 'rule_ids', default=[]),
+        }
+        if isinstance(template['tags'], str):
+            template['tags'] = template['tags'].split(',')
+        import_mode = (self._get(self.req_data, 'importMode', 'import_mode', default='preview') or 'preview').lower()
+        if import_mode not in ('preview', 'auto'):
+            import_mode = 'preview'
+        return CaseGenerationPlanService.create_outline(
+            self.session, project_id, document_ids, user_id, template=template, import_mode=import_mode
+        )
+
+    def document_generation_plan_detail(self):
+        plan_id = self._get(self.req_data, 'planId', 'id')
+        if not plan_id:
+            return {}, 'planId 为必传参数'
+        plan = CaseGenerationPlanService.get_by_id(self.session, plan_id)
+        if not plan:
+            return {}, '生成计划不存在'
+        data = CaseGenerationPlanService.to_dict(plan)
+        try:
+            from app.api.service.aiCaseQualityService import AiCaseQualityService
+            data['candidateCases'] = AiCaseQualityService.annotate_near_duplicates(
+                self.session, plan.project_id, data.get('candidateCases') or []
+            )
+        except Exception:
+            pass
+        return data, ''
+
+    def document_generation_plan_latest(self):
+        project_id = self._get(self.req_data, 'projectId', 'project_id')
+        if not project_id:
+            return {}, 'projectId 为必传参数'
+        plan = CaseGenerationPlanService.get_latest_by_project(self.session, project_id)
+        if not plan:
+            return {}, ''
+        data = CaseGenerationPlanService.to_dict(plan)
+        try:
+            from app.api.service.aiCaseQualityService import AiCaseQualityService
+            data['candidateCases'] = AiCaseQualityService.annotate_near_duplicates(
+                self.session, plan.project_id, data.get('candidateCases') or []
+            )
+        except Exception:
+            pass
+        return data, ''
+
+    def document_generation_plan_update(self):
+        plan_id = self._get(self.req_data, 'planId', 'id')
+        if not plan_id:
+            return {}, 'planId 为必传参数'
+        test_points = self._get(self.req_data, 'testPoints', 'test_points')
+        import_mode = self._get(self.req_data, 'importMode', 'import_mode')
+        candidate_cases = self._get(self.req_data, 'candidateCases', 'candidate_cases')
+        status = self._get(self.req_data, 'status')
+        return CaseGenerationPlanService.update_plan(
+            self.session,
+            plan_id,
+            test_points=test_points,
+            import_mode=import_mode,
+            candidate_cases=candidate_cases,
+            status=status,
+        )
+
+    def document_generation_plan_coverage(self):
+        plan_id = self._get(self.req_data, 'planId', 'id')
+        if not plan_id:
+            return {}, 'planId 为必传参数'
+        return CaseGenerationPlanService.refresh_coverage(self.session, plan_id)
+
+    def document_generation_plan_import(self):
+        plan_id = self._get(self.req_data, 'planId', 'id')
+        if not plan_id:
+            return {}, 'planId 为必传参数'
+        user_id = getattr(g, 'current_user_id', None) or self._get(self.req_data, 'userId', 'user_id')
+        if not user_id:
+            return {}, '未获取到当前登录用户'
+        candidate_ids = self._get(self.req_data, 'candidateIds', 'candidate_ids')
+        return CaseGenerationPlanService.import_selected(
+            self.session, plan_id, user_id, candidate_ids=candidate_ids
+        )

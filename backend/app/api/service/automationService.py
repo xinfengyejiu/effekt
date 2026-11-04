@@ -402,6 +402,11 @@ class AutomationService(object):
         if err_msg:
             return update_id, err_msg
         execution_case = AutomationDao.get_execution_case_by_id(session, execution_case.id)
+        try:
+            from app.api.service.failureAttributionService import FailureAttributionService
+            FailureAttributionService.classify_and_store_auto_case(session, execution_case)
+        except Exception:
+            pass
         if execution_case and execution_case.plan_case_id:
             AutomationService.sync_plan_case_result(session, execution_case)
         AutomationService.refresh_execution_summary(session, execution_id)

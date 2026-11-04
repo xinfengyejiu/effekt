@@ -82,6 +82,12 @@ class ProjectCodePrdController(BaseCrudController):
         repo_url = self._get(self.req_data, 'repoUrl', 'repo_url')
         prompt_append = self._get(self.req_data, 'promptAppend', 'prompt_append', default='')
         created_by = self._get(self.req_data, 'createdBy', 'created_by')
+        if created_by in (None, ''):
+            try:
+                from flask import g
+                created_by = getattr(g, 'current_user_id', None)
+            except Exception:
+                created_by = None
         if not project_id:
             return 0, 'projectId 为必传参数'
         config = ProjectCodePrdService.get_config_by_project(self.session, project_id)

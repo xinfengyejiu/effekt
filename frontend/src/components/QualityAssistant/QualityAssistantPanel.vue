@@ -115,7 +115,7 @@
                   v-for="(a, ai) in m.answer.actions"
                   :key="ai"
                   size="mini"
-                  :type="a.type === 'run_contract_suite' ? 'warning' : 'primary'"
+                  :type="a.type === 'open_ai_case_wizard' || a.type === 'run_contract_suite' ? 'warning' : 'primary'"
                   plain
                   @click="onAction(a)"
                 >{{ a.label }}</el-button>
@@ -194,6 +194,9 @@ export default {
       messages: [],
       examples: [
         { text: '今天哪些 breaking？' },
+        { text: '帮我用最新代码PRD全自动生成用例' },
+        { text: '本项目 AI 用例改写率怎么样？' },
+        { text: '昨晚失败主要像环境还是用例？' },
         { text: '当前项目有多少未关闭 Bug？' },
         { text: '该跑哪包回归？' },
         { text: '打开精准测试' },
@@ -535,6 +538,20 @@ export default {
       }
       clearQualityAssistantSession(this.sessionId).then(done).catch(done)
     },
+    pushAssistantAnswer (answer, fallbackText) {
+      const payload = answer || {
+        answer_text: fallbackText || '已完成',
+        actions: [],
+        citations: [],
+        suggestions: []
+      }
+      this.messages.push({
+        role: 'assistant',
+        content: payload.answer_text || fallbackText || '',
+        answer: payload
+      })
+      this.scrollBottom()
+    },
     onAction (action) {
       if (!action) return
       if (action.type === 'navigate' && action.route) {
@@ -554,19 +571,76 @@ export default {
           })
           .then(res => {
             const data = (res && res.data) || res || {}
-            const answer = data.answer || {
-              answer_text: '已触发执行',
-              actions: [],
-              citations: []
-            }
-            this.messages.push({
-              role: 'assistant',
-              content: answer.answer_text,
-              answer
-            })
-            this.scrollBottom()
+            this.pushAssistantAnswer(data.answer, '已触发执行')
           })
           .catch(() => {})
+          .finally(() => { this.loading = false })
+        return
+      }
+      if (action.type === 'set_ai_case_run_mode') {
+        this.loading = true
+        executeQualityAssistantAction({
+          type: 'set_ai_case_run_mode',
+          session_id: this.sessionId,
+          payload: action.payload || {}
+        })
+          .then(res => {
+            const data = (res && res.data) || res || {}
+            this.pushAssistantAnswer(data.answer, '已更新运行模式')
+          })
+          .catch(err => {
+            this.$message.error((err && err.message) || '设置运行模式失败')
+          })
+          .finally(() => { this.loading = false })
+        return
+      }
+      if (action.type === 'sync_code_prd') {
+        this.loading = true
+        const payload = Object.assign({}, action.payload || {}, {
+          project_id: (action.payload && action.payload.project_id) || this.projectId,
+          product_id: (action.payload && action.payload.product_id) || this.productId
+        })
+        executeQualityAssistantAction({
+          type: 'sync_code_prd',
+          session_id: this.sessionId,
+          payload
+        })
+          .then(res => {
+            const data = (res && res.data) || res || {}
+            this.pushAssistantAnswer(data.answer, '已同步代码PRD')
+          })
+          .catch(err => {
+            this.$message.error((err && err.message) || '同步代码PRD失败')
+          })
+          .finally(() => { this.loading = false })
+        return
+      }
+      if (action.type === 'open_ai_case_wizard') {
+        if (!this.productId || !this.projectId) {
+          this.$message.warning('请先选择产品和项目')
+          return
+        }
+        this.loading = true
+        const payload = Object.assign({}, action.payload || {}, {
+          product_id: (action.payload && action.payload.product_id) || this.productId,
+          project_id: (action.payload && action.payload.project_id) || this.projectId
+        })
+        executeQualityAssistantAction({
+          type: 'open_ai_case_wizard',
+          session_id: this.sessionId,
+          payload
+        })
+          .then(res => {
+            const data = (res && res.data) || res || {}
+            this.pushAssistantAnswer(data.answer, '已打开向导')
+            if (data.route) {
+              this.goRoute(data.route)
+              this.visible = false
+            }
+          })
+          .catch(err => {
+            this.$message.error((err && err.message) || '打开向导失败')
+          })
           .finally(() => { this.loading = false })
       }
     },

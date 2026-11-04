@@ -73,8 +73,19 @@ async def action_execute(request: Request, db: Session = Depends(get_db),
                          user=Depends(require_permission('qa:assistant:action'))):
     body = await request.json()
     action_type = (body or {}).get('type') or (body or {}).get('action_type')
+    codes = user.get('permission_codes') or []
     if action_type == 'run_contract_suite':
-        codes = user.get('permission_codes') or []
         if codes and 'contract:suite:run' not in codes:
             return api_failure(40003, msg='无契约套件执行权限')
+    if action_type in ('open_ai_case_wizard', 'sync_code_prd'):
+        if codes and 'document:generate' not in codes:
+            return api_failure(40003, msg='无文档生成权限')
     return _result(lambda: QualityAssistantController.execute_action(db, body, user))
+
+
+@router.post('/quality-assistant/workflow/event')
+async def workflow_event(request: Request, db: Session = Depends(get_db),
+                         user=Depends(require_permission('qa:assistant:chat'))):
+    """用例向导关键步骤回写到质量助手会话留痕。"""
+    body = await request.json()
+    return _result(lambda: QualityAssistantController.append_workflow_event(db, body, user))

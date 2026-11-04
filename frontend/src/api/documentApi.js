@@ -165,6 +165,71 @@ export function generateDocumentCases(data) {
   })
 }
 
+/** 同步项目最新成功的代码转PRD为文档源 */
+export function syncDocumentFromCodePrd(data) {
+  return request({
+    url: '/document/sync-code-prd',
+    method: 'post',
+    data
+  })
+}
+
+/** 生成需求大纲（测点清单） */
+export function generateDocumentOutline(data) {
+  return request({
+    url: '/document/generate-outline',
+    method: 'post',
+    data,
+    timeout: 180000
+  })
+}
+
+/** 生成计划详情 */
+export function getGenerationPlanDetail(params) {
+  return request({
+    url: '/document/generation-plan/detail',
+    method: 'get',
+    params
+  })
+}
+
+/** 按项目取最近一条生成计划（刷新后恢复向导） */
+export function getLatestGenerationPlan(params) {
+  return request({
+    url: '/document/generation-plan/latest',
+    method: 'get',
+    params
+  })
+}
+
+/** 更新生成计划（测点勾选等） */
+export function updateGenerationPlan(data) {
+  return request({
+    url: '/document/generation-plan/update',
+    method: 'post',
+    data
+  })
+}
+
+/** 刷新覆盖报告 */
+export function refreshGenerationPlanCoverage(data) {
+  return request({
+    url: '/document/generation-plan/coverage',
+    method: 'post',
+    data
+  })
+}
+
+/** 确认导入预览候选用例 */
+export function importGenerationPlanCases(data) {
+  return request({
+    url: '/document/generation-plan/import',
+    method: 'post',
+    data,
+    timeout: 120000
+  })
+}
+
 /** 模块匹配 */
 export function matchDocumentModules(data) {
   return request({

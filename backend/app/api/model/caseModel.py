@@ -75,6 +75,27 @@ class CaseGenerationCheckpoint(Base):
     updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'), nullable=True, comment='更新时间')
 
 
+class CaseGenerationPlan(Base):
+    """需求→用例两阶段计划：大纲测点、预览候选、覆盖报告。"""
+    __tablename__ = 'case_generation_plan'
+    __table_args__ = (
+        Index('idx_case_generation_plan_project', 'project_id', 'status'),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
+    project_id = Column(BigInteger, nullable=False, comment='项目id')
+    document_ids = Column(ARRAY(BigInteger), server_default=text("'{}'::bigint[]"), comment='文档ID集合')
+    status = Column(String(32), default='outline', comment='outline/ready/generating/preview/imported/closed')
+    import_mode = Column(String(16), default='preview', comment='preview/auto')
+    outline = Column(JSONB, server_default=text("'{}'::jsonb"), comment='大纲：modules/testPoints')
+    candidate_cases = Column(JSONB, server_default=text("'[]'::jsonb"), comment='预览候选用例')
+    coverage = Column(JSONB, server_default=text("'{}'::jsonb"), comment='覆盖报告')
+    template = Column(JSONB, server_default=text("'{}'::jsonb"), comment='生成参数快照')
+    generation_id = Column(String(64), comment='最近一次生成ID')
+    created_by = Column(BigInteger, comment='创建人')
+    created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), nullable=True, comment='创建时间')
+    updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'), nullable=True, comment='更新时间')
+
+
 class CaseSnapshot(Base):
     __tablename__ = 'case_snapshot'
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
@@ -95,3 +116,30 @@ class CaseReview(Base):
     diff_content = Column(Text, comment='JSON diff')
     created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), nullable=True, comment='创建时间')
     reviewed_time = Column(TIMESTAMP, nullable=True, comment='评审时间')
+
+
+class AiCaseOrigin(Base):
+    """AI 用例入库原貌，用于改写率/废稿率统计。"""
+    __tablename__ = 'ai_case_origin'
+    __table_args__ = (
+        Index('uk_ai_case_origin_case', 'case_id', unique=True),
+        Index('idx_ai_case_origin_project_status', 'project_id', 'status'),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='id')
+    case_id = Column(BigInteger, nullable=False, comment='用例id')
+    project_id = Column(BigInteger, nullable=False, comment='项目id')
+    plan_id = Column(BigInteger, comment='生成计划id')
+    candidate_id = Column(String(64), comment='候选用例id')
+    generation_id = Column(String(64), comment='生成任务id')
+    origin_title = Column(String(255), comment='入库原标题')
+    origin_preconditions = Column(Text, comment='入库原前置')
+    origin_steps = Column(Text, comment='入库原步骤')
+    origin_expected_results = Column(Text, comment='入库原预期')
+    status = Column(String(16), default='intact', comment='intact/rewritten/abandoned')
+    rewrite_fields = Column(ARRAY(String(64)), server_default=text("'{}'::varchar[]"), comment='改写字段')
+    rewritten_at = Column(TIMESTAMP, nullable=True, comment='首次改写时间')
+    rewritten_by = Column(BigInteger, comment='改写人')
+    abandoned_at = Column(TIMESTAMP, nullable=True, comment='废弃/删除时间')
+    imported_at = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), nullable=True, comment='入库时间')
+    created_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), nullable=True, comment='创建时间')
+    updated_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), server_onupdate=text('CURRENT_TIMESTAMP'), nullable=True, comment='更新时间')
